@@ -20,7 +20,7 @@ from babble.bench.report import (
     render_markdown_table,
     summarize_by_preset,
 )
-from babble.bench.runner import TrialResult, run_matrix, run_trial, trial_file_path
+from babble.bench.runner import TrialResult, run_matrix, run_trial
 from babble.bench.scenario import Scenario, load_all
 from babble.harness.policy import make_approver
 from babble.lab.clab import CommandRunner, LabManager
@@ -63,13 +63,14 @@ def build_llm_client() -> LLMClient:
 
 
 def scenarios_named(scenario_ids: list[str]) -> list[Scenario]:
-    by_id = {scenario.id: scenario for scenario in load_all()}
-    unknown = [name for name in scenario_ids if name not in by_id]
+    scenarios_by_id = {scenario.id: scenario for scenario in load_all()}
+    unknown = [name for name in scenario_ids if name not in scenarios_by_id]
     if unknown:
         raise UsageError(
-            f"unknown scenario(s): {', '.join(unknown)}; valid scenarios: {', '.join(by_id)}"
+            f"unknown scenario(s): {', '.join(unknown)}; "
+            f"valid scenarios: {', '.join(scenarios_by_id)}"
         )
-    return [by_id[name] for name in scenario_ids]
+    return [scenarios_by_id[name] for name in scenario_ids]
 
 
 def validated_preset_names(preset_names: list[str]) -> list[str]:
@@ -96,6 +97,14 @@ def bring_lab_to_baseline(manager: LabManager) -> None:
     """Fail fast unless the running lab is healthy, then record it as the baseline to reset to."""
     manager.wait_healthy(timeout=LAB_READY_TIMEOUT_SECONDS, interval=LAB_POLL_INTERVAL_SECONDS)
     manager.take_baseline()
+
+
+def default_lab_at_baseline() -> tuple[Topology, LabManager]:
+    """The default topology and its running lab, verified healthy and recorded as the baseline."""
+    topology = load_topology(DEFAULT_TOPOLOGY_NAME)
+    manager = build_lab_manager(topology)
+    bring_lab_to_baseline(manager)
+    return topology, manager
 
 
 def command_lab_up(args: argparse.Namespace) -> int:
@@ -141,10 +150,7 @@ def command_run(args: argparse.Namespace) -> int:
     preset_name = validated_preset_names([args.preset])[0]
     harness_config = preset(preset_name, model=args.model)
     output_directory = Path(args.output_directory or default_output_directory())
-    topology = load_topology(DEFAULT_TOPOLOGY_NAME)
-
-    manager = build_lab_manager(topology)
-    bring_lab_to_baseline(manager)
+    topology, manager = default_lab_at_baseline()
     result = run_trial(
         scenario,
         preset_name,
@@ -169,10 +175,7 @@ def command_bench(args: argparse.Namespace) -> int:
     )
     preset_names = validated_preset_names(split_comma_list(args.presets))
     output_directory = Path(args.output_directory or default_output_directory())
-    topology = load_topology(DEFAULT_TOPOLOGY_NAME)
-
-    manager = build_lab_manager(topology)
-    bring_lab_to_baseline(manager)
+    topology, manager = default_lab_at_baseline()
     results_path = output_directory / "results.jsonl"
     run_matrix(
         scenarios,
@@ -206,11 +209,13 @@ def command_report(args: argparse.Namespace) -> int:
 
 
 def describe_trial(result: TrialResult, scenario: Scenario, output_directory: Path) -> str:
-    expected = f"{scenario.root_cause.device or '-'}/{scenario.root_cause.category}"
+    expected = _device_and_category(scenario.root_cause.device, scenario.root_cause.category)
     if result.diagnosis is None:
         diagnosed = "no diagnosis"
     else:
-        diagnosed = f"{result.diagnosis['root_cause_device'] or '-'}/{result.diagnosis['category']}"
+        diagnosed = _device_and_category(
+            result.diagnosis["root_cause_device"], result.diagnosis["category"]
+        )
     root_cause_verdict = "correct" if result.root_cause_correct else "wrong"
     lines = [
         f"Scenario: {scenario.id} ({scenario.title})",
@@ -222,18 +227,16 @@ def describe_trial(result: TrialResult, scenario: Scenario, output_directory: Pa
         ),
         f"Turns: {result.turns}  Stop reason: {result.stop_reason}",
         f"Cost: ${result.cost_usd:.4f}  Wall time: {result.wall_seconds:.1f}s",
-        f"Audit log: {_trial_file(result, output_directory, 'audit.jsonl')}",
-        f"Messages: {_trial_file(result, output_directory, 'messages.json')}",
+        f"Audit log: {result.trial_file(output_directory, 'audit.jsonl')}",
+        f"Messages: {result.trial_file(output_directory, 'messages.json')}",
     ]
     if result.error is not None:
         lines.append(f"Error: {result.error}")
     return "\n".join(lines)
 
 
-def _trial_file(result: TrialResult, output_directory: Path, suffix: str) -> Path:
-    return trial_file_path(
-        output_directory, result.scenario_id, result.preset_name, result.trial_index, suffix
-    )
+def _device_and_category(device: str, category: str) -> str:
+    return f"{device or '-'}/{category}"
 
 
 def render_report(results: list[dict[str, Any]]) -> str:
@@ -258,39 +261,41 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="babble", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
 
-    lab = commands.add_parser("lab", help="bring the containerlab topology up, down or check it")
-    lab_commands = lab.add_subparsers(dest="lab_command", required=True)
-    for name, handler, help_text in [
+    lab_parser = commands.add_parser(
+        "lab", help="bring the containerlab topology up, down or check it"
+    )
+    lab_subcommands = lab_parser.add_subparsers(dest="lab_command", required=True)
+    for subcommand_name, handler, help_text in [
         ("up", command_lab_up, "deploy the topology and wait until it is healthy"),
         ("down", command_lab_down, "destroy the topology"),
         ("status", command_lab_status, "print PASS or FAIL for each health check"),
     ]:
-        lab_parser = lab_commands.add_parser(name, help=help_text)
-        lab_parser.add_argument("--topology", default=DEFAULT_TOPOLOGY_NAME)
-        lab_parser.set_defaults(handler=handler)
+        subcommand_parser = lab_subcommands.add_parser(subcommand_name, help=help_text)
+        subcommand_parser.add_argument("--topology", default=DEFAULT_TOPOLOGY_NAME)
+        subcommand_parser.set_defaults(handler=handler)
 
-    scenarios = commands.add_parser("scenarios", help="list the fault scenarios")
-    scenarios.set_defaults(handler=command_scenarios)
+    scenarios_parser = commands.add_parser("scenarios", help="list the fault scenarios")
+    scenarios_parser.set_defaults(handler=command_scenarios)
 
-    run = commands.add_parser("run", help="run one scenario once against the running lab")
-    run.add_argument("scenario_id")
-    run.add_argument("--preset", default="full")
-    run.add_argument("--model")
-    run.add_argument("--approval", choices=APPROVAL_MODES, default="auto_approve")
-    run.add_argument("--output-directory")
-    run.set_defaults(handler=command_run)
+    run_parser = commands.add_parser("run", help="run one scenario once against the running lab")
+    run_parser.add_argument("scenario_id")
+    run_parser.add_argument("--preset", default="full")
+    run_parser.add_argument("--model")
+    run_parser.add_argument("--approval", choices=APPROVAL_MODES, default="auto_approve")
+    run_parser.add_argument("--output-directory")
+    run_parser.set_defaults(handler=command_run)
 
-    bench = commands.add_parser("bench", help="run scenarios x presets x trials and report")
-    bench.add_argument("--scenarios", default="all", help="comma-separated ids, or all")
-    bench.add_argument("--presets", default="full", help="comma-separated preset names")
-    bench.add_argument("--trials", type=int, default=3)
-    bench.add_argument("--model")
-    bench.add_argument("--output-directory")
-    bench.set_defaults(handler=command_bench)
+    bench_parser = commands.add_parser("bench", help="run scenarios x presets x trials and report")
+    bench_parser.add_argument("--scenarios", default="all", help="comma-separated ids, or all")
+    bench_parser.add_argument("--presets", default="full", help="comma-separated preset names")
+    bench_parser.add_argument("--trials", type=int, default=3)
+    bench_parser.add_argument("--model")
+    bench_parser.add_argument("--output-directory")
+    bench_parser.set_defaults(handler=command_bench)
 
-    report = commands.add_parser("report", help="print the report for a results.jsonl file")
-    report.add_argument("results_jsonl")
-    report.set_defaults(handler=command_report)
+    report_parser = commands.add_parser("report", help="print the report for a results.jsonl file")
+    report_parser.add_argument("results_jsonl")
+    report_parser.set_defaults(handler=command_report)
 
     return parser
 
