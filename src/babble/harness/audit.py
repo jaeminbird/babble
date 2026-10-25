@@ -21,38 +21,40 @@ from babble.types import Event
 GENESIS = "0" * 64
 
 
-def _digest(record: dict) -> str:
-    body = json.dumps(record, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+def _canonical_json(record: dict) -> str:
+    return json.dumps(record, sort_keys=True, separators=(",", ":"))
+
+
+def _sha256_of_record(record: dict) -> str:
+    return hashlib.sha256(_canonical_json(record).encode("utf-8")).hexdigest()
 
 
 class AuditLog:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path
         self.events: list[Event] = []
-        self._prev = GENESIS
+        self._previous_sha256 = GENESIS
         # Children of a parallel batch record concurrently. The lock keeps the chain and file in order.
         self._lock = threading.Lock()
         if path is not None and path.exists():
             # Continue the chain from an existing file rather than starting a new one.
-            last = _last_line(path)
-            if last is not None:
-                self._prev = json.loads(last)["sha256"]
+            last_line = _last_nonblank_line(path)
+            if last_line is not None:
+                self._previous_sha256 = json.loads(last_line)["sha256"]
 
     def record(self, event: Event) -> None:
         with self._lock:
-            rec = event.to_dict()
-            rec["prev_sha256"] = self._prev
-            rec["sha256"] = _digest(rec)
+            chained_record = event.to_dict()
+            chained_record["prev_sha256"] = self._previous_sha256
+            chained_record["sha256"] = _sha256_of_record(chained_record)
             if self.path is not None:
-                line = json.dumps(rec, sort_keys=True, separators=(",", ":"))
-                with open(self.path, "a", encoding="utf-8", newline="\n") as f:
-                    f.write(line + "\n")
-            self._prev = rec["sha256"]
+                with open(self.path, "a", encoding="utf-8", newline="\n") as log_file:
+                    log_file.write(_canonical_json(chained_record) + "\n")
+            self._previous_sha256 = chained_record["sha256"]
             self.events.append(event)
 
     def of_type(self, type: str) -> list[Event]:
-        return [e for e in self.events if e.type == type]
+        return [event for event in self.events if event.type == type]
 
 
 class TaggedAuditLog:
@@ -72,31 +74,31 @@ class TaggedAuditLog:
 
 def verify_chain(path: Path) -> bool:
     """True if every line parses, links to the previous line, and matches its own hash."""
-    prev = GENESIS
-    with open(path, encoding="utf-8") as f:
-        for raw in f:
-            line = raw.rstrip("\n")
+    expected_prev_sha256 = GENESIS
+    with open(path, encoding="utf-8") as log_file:
+        for raw_line in log_file:
+            line_text = raw_line.rstrip("\n")
             try:
-                rec = json.loads(line)
+                parsed_record = json.loads(line_text)
             except ValueError:
                 return False
-            if not isinstance(rec, dict):
+            if not isinstance(parsed_record, dict):
                 return False
-            claimed = rec.pop("sha256", None)
-            if not isinstance(claimed, str):
+            claimed_sha256 = parsed_record.pop("sha256", None)
+            if not isinstance(claimed_sha256, str):
                 return False
-            if rec.get("prev_sha256") != prev:
+            if parsed_record.get("prev_sha256") != expected_prev_sha256:
                 return False
-            if _digest(rec) != claimed:
+            if _sha256_of_record(parsed_record) != claimed_sha256:
                 return False
-            prev = claimed
+            expected_prev_sha256 = claimed_sha256
     return True
 
 
-def _last_line(path: Path) -> str | None:
-    last: str | None = None
-    with open(path, encoding="utf-8") as f:
-        for raw in f:
-            if raw.strip():
-                last = raw.strip()
-    return last
+def _last_nonblank_line(path: Path) -> str | None:
+    last_nonblank: str | None = None
+    with open(path, encoding="utf-8") as log_file:
+        for raw_line in log_file:
+            if raw_line.strip():
+                last_nonblank = raw_line.strip()
+    return last_nonblank
