@@ -1,6 +1,6 @@
 import re
 
-from babbler.harness.prompts import SUBAGENT_PROMPT, SYSTEM_PROMPT
+from babble.harness.prompts import SUBAGENT_PROMPT, SYSTEM_PROMPT
 
 
 def test_prompt_is_short_and_plain():

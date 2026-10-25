@@ -1,16 +1,16 @@
 from typing import Any
 
-from babbler.harness.accounting import Accounting
-from babbler.harness.audit import AuditLog
-from babbler.harness.loop import SUBMIT_TOOL, Agent
-from babbler.harness.policy import AutoApprover, SafetyPolicy
-from babbler.harness.subagent import make_inspect_device_tool
-from babbler.lab.scripted import ScriptedLab
-from babbler.lab.topology import load_topology
-from babbler.llm import FakeLLMClient, assert_append_only, response, text, tool_use
-from babbler.netops.change import ChangeManager
-from babbler.netops.tools import build_tools
-from babbler.types import HarnessConfig, LLMResponse, PingResult, ToolResult, Usage
+from babble.harness.accounting import Accounting
+from babble.harness.audit import AuditLog
+from babble.harness.loop import SUBMIT_TOOL, Agent
+from babble.harness.policy import AutoApprover, SafetyPolicy
+from babble.harness.subagent import make_inspect_device_tool
+from babble.lab.scripted import ScriptedLab
+from babble.lab.topology import load_topology
+from babble.llm import FakeLLMClient, assert_append_only, response, text, tool_use
+from babble.netops.change import ChangeManager
+from babble.netops.tools import build_tools
+from babble.types import HarnessConfig, LLMResponse, PingResult, ToolResult, Usage
 
 TOPO = load_topology("metro")
 HAIKU = "claude-haiku-5-5"

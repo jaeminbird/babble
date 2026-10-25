@@ -8,15 +8,15 @@ from typing import Any
 
 import pytest
 
-from babbler import cli
-from babbler.bench.report import load_results
-from babbler.bench.runner import TrialResult
-from babbler.bench.scenario import load_all
-from babbler.lab.scripted import ScriptedLab
-from babbler.lab.topology import Topology, load_topology
-from babbler.llm import FakeLLMClient, response, tool_use
-from babbler.netops import checks
-from babbler.types import LabError, LLMResponse, PingResult
+from babble import cli
+from babble.bench.report import load_results
+from babble.bench.runner import TrialResult
+from babble.bench.scenario import load_all
+from babble.lab.scripted import ScriptedLab
+from babble.lab.topology import Topology, load_topology
+from babble.llm import FakeLLMClient, response, tool_use
+from babble.netops import checks
+from babble.types import LabError, LLMResponse, PingResult
 
 TOPOLOGY = load_topology("metro")
 NO_FAULT_SCENARIO = "no-fault-control"

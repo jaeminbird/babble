@@ -5,8 +5,8 @@ error, unparseable output or an unexpected shape all count as the check failing.
 
 Usage:
 
-    from babbler.netops.checks import evaluate, evaluate_all, evaluate_all_after_convergence
-    from babbler.types import Check
+    from babble.netops.checks import evaluate, evaluate_all, evaluate_all_after_convergence
+    from babble.types import Check
 
     check = Check("bgp_established", "r1", "10.2.0.1")
     evaluate(check, lab)                       # True when r1 has an Established session
@@ -21,7 +21,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from babbler.types import Check, LabBackend
+from babble.types import Check, LabBackend
 
 # Even when every check passes early, keep watching this long: a bad change can take a few
 # seconds to tear down a session.

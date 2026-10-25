@@ -2,9 +2,9 @@ import threading
 
 import pytest
 
-from babbler.harness.accounting import Accounting
-from babbler.llm import cost
-from babbler.types import Usage
+from babble.harness.accounting import Accounting
+from babble.llm import cost
+from babble.types import Usage
 
 
 def test_starts_empty():

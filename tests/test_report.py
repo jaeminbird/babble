@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from babbler.bench.report import (
+from babble.bench.report import (
     load_results,
     pass_at_k,
     pass_hat_k,
@@ -10,7 +10,7 @@ from babbler.bench.report import (
     render_markdown_table,
     summarize_by_preset,
 )
-from babbler.bench.runner import TrialResult
+from babble.bench.runner import TrialResult
 
 
 def trial(scenario_id="a", preset_name="full", fixable=True, **fields):

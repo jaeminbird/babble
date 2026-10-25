@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from babbler.harness.policy import (
+from babble.harness.policy import (
     DECLINED_NOTE,
     AutoApprover,
     AutoDenier,
@@ -11,7 +11,7 @@ from babbler.harness.policy import (
     ScriptedApprover,
     make_approver,
 )
-from babbler.types import ToolCall, ToolResult, ToolSpec
+from babble.types import ToolCall, ToolResult, ToolSpec
 
 
 def _spec(name: str, mutating: bool) -> ToolSpec:

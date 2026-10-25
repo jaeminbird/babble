@@ -1,6 +1,6 @@
 import pytest
 
-from babbler.harness.truncate import truncate
+from babble.harness.truncate import truncate
 
 
 def test_short_text_is_unchanged():

@@ -2,9 +2,9 @@ import json
 
 import pytest
 
-from babbler.lab.scripted import ScriptedLab
-from babbler.netops.checks import evaluate, evaluate_all, evaluate_all_after_convergence
-from babbler.types import Check, LabError, PingResult
+from babble.lab.scripted import ScriptedLab
+from babble.netops.checks import evaluate, evaluate_all, evaluate_all_after_convergence
+from babble.types import Check, LabError, PingResult
 
 BGP_CMD = "show bgp neighbors 10.2.0.1 json"
 ROUTE_CMD = "show ip route 172.16.0.0/24 json"

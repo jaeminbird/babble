@@ -12,16 +12,16 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from babbler.lab.topology import Topology
-from babbler.types import Check, LabBackend, LabError, PingResult
+from babble.lab.topology import Topology
+from babble.types import Check, LabBackend, LabError, PingResult
 
 # Decides whether one health check passes on a running lab. Matches the shape of
-# babbler.netops.checks.evaluate, which is imported lazily when no callable is given.
+# babble.netops.checks.evaluate, which is imported lazily when no callable is given.
 Evaluate = Callable[[Check, LabBackend], bool]
 
-WSL_PREFIX_ENV = "BABBLER_WSL_DISTRO"
+WSL_PREFIX_ENV = "BABBLE_WSL_DISTRO"
 _DRIVE = re.compile(r"^([A-Za-z]):/(.*)$")
-RESTORE_FILE = "/tmp/babbler-restore.conf"
+RESTORE_FILE = "/tmp/babble-restore.conf"
 _PING_STATS = re.compile(r"(\d+) packets transmitted, (\d+) (?:packets )?received")
 
 
@@ -186,7 +186,7 @@ class LabManager:
         """Poll every health check until all pass. Raises LabError when time runs out."""
         if evaluate is None:
             # Lazy: netops.checks is written separately and may not exist on every branch.
-            from babbler.netops.checks import evaluate as default_evaluate
+            from babble.netops.checks import evaluate as default_evaluate
 
             evaluate = default_evaluate
         deadline = time.monotonic() + timeout
