@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import json
+from collections.abc import Callable, Iterable
 
-from faultline.types import Decision, ToolCall, ToolSpec
+from faultline.types import ApprovalMode, Approver, Decision, ToolCall, ToolSpec
 
 
 class SafetyPolicy:
@@ -37,3 +38,72 @@ class SafetyPolicy:
         if spec.mutating:
             return "ask", f"mutating tool {call.name} requires approval"
         return "allow", f"read-only tool {call.name}"
+
+
+# ------------------------------------------------------------------ approvers
+
+DECLINED_NOTE = "The operator declined this change. Do not retry it."
+
+
+class AutoApprover:
+    """Approves every gated call. Used for the unattended bench."""
+
+    def approve(self, call: ToolCall, reason: str) -> tuple[bool, str]:
+        return True, "auto-approved"
+
+
+class AutoDenier:
+    """Declines every gated call."""
+
+    def approve(self, call: ToolCall, reason: str) -> tuple[bool, str]:
+        return False, DECLINED_NOTE
+
+
+class CliApprover:
+    """Asks a human on the terminal. input_fn and output_fn are injectable for tests."""
+
+    def __init__(
+        self,
+        input_fn: Callable[[str], str] = input,
+        output_fn: Callable[[str], object] = print,
+    ) -> None:
+        self.input_fn = input_fn
+        self.output_fn = output_fn
+
+    def approve(self, call: ToolCall, reason: str) -> tuple[bool, str]:
+        self.output_fn(f"Approval required: {reason}")
+        self.output_fn(f"Tool: {call.name}")
+        self.output_fn(json.dumps(call.input, indent=2, sort_keys=True))
+        try:
+            answer = self.input_fn("Approve? [y/N] ")
+        except EOFError:
+            # No terminal input available: fail closed.
+            return False, DECLINED_NOTE
+        if answer.strip().lower() in ("y", "yes"):
+            return True, "approved by operator"
+        return False, DECLINED_NOTE
+
+
+class ScriptedApprover:
+    """Returns pre-set decisions in order. Fails loudly if asked more often than scripted."""
+
+    def __init__(self, decisions: list[bool]) -> None:
+        self._decisions = list(decisions)
+        self.calls: list[tuple[ToolCall, str]] = []
+
+    def approve(self, call: ToolCall, reason: str) -> tuple[bool, str]:
+        self.calls.append((call, reason))
+        if not self._decisions:
+            raise RuntimeError(f"ScriptedApprover has no decision left for {call.name}")
+        approved = self._decisions.pop(0)
+        return (True, "approved by script") if approved else (False, DECLINED_NOTE)
+
+
+def make_approver(mode: ApprovalMode) -> Approver:
+    if mode == "human":
+        return CliApprover()
+    if mode == "auto_approve":
+        return AutoApprover()
+    if mode == "auto_deny":
+        return AutoDenier()
+    raise ValueError(f"unknown approval mode: {mode!r}")
