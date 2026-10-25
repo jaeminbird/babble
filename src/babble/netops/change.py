@@ -21,10 +21,9 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from babble.harness.audit import AuditLog
 from babble.netops.checks import evaluate_all, evaluate_all_after_convergence
 from babble.netops.commands import blocked_config
-from babble.types import Check, Event, HarnessConfig, LabBackend, LabError, ToolResult
+from babble.types import AuditSink, Check, Event, HarnessConfig, LabBackend, LabError, ToolResult
 
 # Result texts are read by the model, so long lists are cut to this many entries.
 LIST_LIMIT = 8
@@ -47,7 +46,7 @@ class ChangeManager:
         lab: LabBackend,
         checks: Sequence[Check],
         config: HarnessConfig,
-        audit: AuditLog,
+        audit: AuditSink,
         convergence_wait_seconds: float = 0.0,
         poll_interval_seconds: float = 3.0,
         sleep: Callable[[float], None] = time.sleep,

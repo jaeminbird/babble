@@ -215,6 +215,13 @@ class Event:
         return asdict(self)
 
 
+class AuditSink(Protocol):
+    """Anything that records audit events. AuditLog and TaggedAuditLog both satisfy it. Consumers
+    that only record events annotate with this, not with the file-backed AuditLog."""
+
+    def record(self, event: Event) -> None: ...
+
+
 # ------------------------------------------------------------------ diagnosis
 
 FAULT_CATEGORIES = (

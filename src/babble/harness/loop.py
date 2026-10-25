@@ -12,11 +12,11 @@ from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
 from babble.harness.accounting import Accounting
-from babble.harness.audit import AuditLog
 from babble.harness.policy import SafetyPolicy
 from babble.harness.truncate import truncate
 from babble.types import (
     Approver,
+    AuditSink,
     Diagnosis,
     Event,
     HarnessConfig,
@@ -83,7 +83,7 @@ class Agent:
         config: HarnessConfig,
         policy: SafetyPolicy,
         approver: Approver,
-        audit: AuditLog,
+        audit: AuditSink,
         system_prompt: str,
         accounting: Accounting | None = None,
         compactor: Compactor | None = None,

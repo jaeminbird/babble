@@ -10,13 +10,14 @@ import dataclasses
 from typing import Any
 
 from babble.harness.accounting import Accounting
-from babble.harness.audit import AuditLog, TaggedAuditLog
+from babble.harness.audit import TaggedAuditLog
 from babble.harness.loop import Agent, RunResult
 from babble.harness.policy import AutoDenier, SafetyPolicy
 from babble.harness.prompts import SUBAGENT_PROMPT
 from babble.lab.topology import Topology
 from babble.netops.tools import run_ping, run_show_command
 from babble.types import (
+    AuditSink,
     Event,
     HarnessConfig,
     LabBackend,
@@ -36,7 +37,7 @@ def make_inspect_device_tool(
     topology: Topology,
     harness_config: HarnessConfig,
     accounting: Accounting,
-    audit: AuditLog,
+    audit: AuditSink,
 ) -> ToolSpec:
     def handle(tool_input: dict[str, Any]) -> ToolResult:
         device = tool_input.get("device")
@@ -103,7 +104,7 @@ def _investigate(
     lab: LabBackend,
     harness_config: HarnessConfig,
     accounting: Accounting,
-    audit: AuditLog,
+    audit: AuditSink,
 ) -> RunResult:
     child_config = dataclasses.replace(
         harness_config,
