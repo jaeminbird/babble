@@ -140,7 +140,7 @@ def assemble_agent(
         )
     if notes is not None:
         extra_tools.append(make_notes_tool(notes))
-    tools = build_tools(lab, topology, change_manager, extra=extra_tools)
+    tools = build_tools(lab, topology, change_manager, extra_tools=extra_tools)
 
     compactor = None
     if harness_config.compaction_threshold is not None:
@@ -241,7 +241,7 @@ def run_trial(
             scenario,
             harness_config,
             agent_run,
-            trial_agent.change_manager.changes,
+            trial_agent.change_manager.change_records,
             all_checks,
             baseline_results,
             after_fault_results,

@@ -32,12 +32,12 @@ def make_lab(lab_cls=ScriptedLab, **overrides):
     return lab_cls(**kwargs)
 
 
-def make_tools_with_lab(lab_cls=ScriptedLab, checks=(DC_PING,), extra=(), config=None, **overrides):
+def make_tools_with_lab(lab_cls=ScriptedLab, checks=(DC_PING,), extra_tools=(), config=None, **overrides):
     lab = make_lab(lab_cls, **overrides)
     audit = AuditLog()
     config = config or HarnessConfig()
     changes = ChangeManager(lab, list(checks), config, audit)
-    tools = build_tools(lab, TOPO, changes, extra=extra)
+    tools = build_tools(lab, TOPO, changes, extra_tools=extra_tools)
     return {t.name: t for t in tools}, lab, audit, changes
 
 
@@ -54,11 +54,11 @@ def test_tools_are_in_fixed_order_with_submit_last():
 
 
 def test_extra_tools_go_before_submit():
-    extra = [
+    extra_tools = [
         ToolSpec(name="inspect_device", description="d", input_schema={}, handler=lambda _: None),
         ToolSpec(name="notes", description="d", input_schema={}, handler=lambda _: None),
     ]
-    tools, *_ = make_tools_with_lab(extra=extra)
+    tools, *_ = make_tools_with_lab(extra_tools=extra_tools)
     assert list(tools) == [
         "list_devices",
         "show",

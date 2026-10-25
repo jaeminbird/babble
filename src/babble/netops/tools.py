@@ -14,7 +14,7 @@ from typing import Any
 from babble.harness.loop import SUBMIT_TOOL
 from babble.lab.topology import Topology
 from babble.netops.change import ChangeManager
-from babble.netops.commands import validate_show
+from babble.netops.commands import validate_read_only_show_command
 from babble.types import (
     FAULT_CATEGORIES,
     LabBackend,
@@ -32,10 +32,10 @@ def build_tools(
     lab: LabBackend,
     topology: Topology,
     change_manager: ChangeManager,
-    extra: Sequence[ToolSpec] = (),
+    extra_tools: Sequence[ToolSpec] = (),
 ) -> list[ToolSpec]:
     """The tools for one run, in a fixed order: list_devices, show, ping, propose_change,
-    rollback, then `extra` (subagent and notes tools), then submit_diagnosis last.
+    rollback, then `extra_tools` (subagent and notes tools), then submit_diagnosis last.
     """
     specs = [
         ToolSpec(
@@ -121,7 +121,7 @@ def build_tools(
             parallel_safe=False,
         ),
     ]
-    specs.extend(extra)
+    specs.extend(extra_tools)
     specs.append(_submit_diagnosis_spec())
     return specs
 
@@ -149,7 +149,7 @@ def run_show_command(lab: LabBackend, device: str, command: Any) -> ToolResult:
     the subagent's, so both validate and report the same way."""
     if not isinstance(command, str):
         return ToolResult("Not run: command must be a string.", is_error=True)
-    problem_message = validate_show(command)
+    problem_message = validate_read_only_show_command(command)
     if problem_message:
         return ToolResult(
             f"Not run: {problem_message}. Example: show ip route 172.16.0.0/24 json",

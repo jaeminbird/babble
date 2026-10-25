@@ -78,7 +78,7 @@ def test_applies_and_reports_every_check_passing():
         "checks_passing": 1,
         "checks_total": 1,
     }
-    assert manager.changes == [
+    assert manager.change_records == [
         {
             "device": "r3",
             "lines": FIX,
@@ -154,7 +154,7 @@ def test_blocked_lines_are_rejected_and_nothing_is_applied():
     assert lab.applied_lines("r3") == []
     assert _event_types(audit) == ["change_rejected"]
     assert audit.of_type("change_rejected")[0].data["device"] == "r3"
-    assert manager.changes == []
+    assert manager.change_records == []
 
 
 def test_empty_line_list_is_rejected():
@@ -183,7 +183,7 @@ def test_cli_error_restores_the_snapshot_and_reports_it():
     assert "restored to its previous state" in result.content
     assert lab.applied_lines("r3") == []
     assert _event_types(audit) == ["change_rejected"]
-    assert manager.changes == []
+    assert manager.change_records == []
 
 
 def test_cli_error_reports_when_restore_also_fails():
@@ -222,8 +222,8 @@ def test_regression_rolls_back_automatically():
         "reason": "service checks regressed",
         "regressions": ["ping hb -> 192.168.2.10"],
     }
-    assert manager.changes[0]["rolled_back"] is True
-    assert manager.changes[0]["regressions"] == ["ping hb -> 192.168.2.10"]
+    assert manager.change_records[0]["rolled_back"] is True
+    assert manager.change_records[0]["regressions"] == ["ping hb -> 192.168.2.10"]
 
 
 def test_regression_is_kept_when_auto_rollback_is_off():
@@ -238,8 +238,8 @@ def test_regression_is_kept_when_auto_rollback_is_off():
     assert "Still failing: ping hb -> 192.168.2.10" in result.content
     assert lab.applied_lines("r3") == FIX
     assert _event_types(audit) == ["change_applied"]
-    assert manager.changes[0]["rolled_back"] is False
-    assert manager.changes[0]["regressions"] == ["ping hb -> 192.168.2.10"]
+    assert manager.change_records[0]["rolled_back"] is False
+    assert manager.change_records[0]["regressions"] == ["ping hb -> 192.168.2.10"]
 
 
 def test_failing_before_and_after_is_not_a_regression():
@@ -248,7 +248,7 @@ def test_failing_before_and_after_is_not_a_regression():
 
     assert not result.is_error
     assert audit.of_type("rollback") == []
-    assert manager.changes[0]["regressions"] == []
+    assert manager.change_records[0]["regressions"] == []
 
 
 class RestoreAlwaysFailsLab(ScriptedLab):
@@ -280,7 +280,7 @@ def test_failed_automatic_rollback_is_recorded_as_failed_not_rolled_back():
 
     assert result.is_error
     assert "automatic rollback failed: restore broke" in result.content
-    assert manager.changes == [
+    assert manager.change_records == [
         {
             "device": "r3",
             "lines": FIX,
@@ -311,7 +311,7 @@ def test_rollback_restores_the_config_before_the_last_kept_change():
     assert not result.is_error
     assert lab.applied_lines("r3") == []
     assert lab.state == "broken"
-    assert manager.changes[0]["rolled_back"] is True
+    assert manager.change_records[0]["rolled_back"] is True
     assert audit.of_type("rollback")[0].data["reason"] == "rolled back on request"
 
 
@@ -391,7 +391,7 @@ def test_regression_that_appears_after_the_change_is_caught_and_rolled_back():
     result = manager.apply("r3", ["router bgp 65000"], "test")
     assert result.is_error
     assert "rolled back" in result.content
-    assert manager.changes[-1]["rolled_back"] is True
+    assert manager.change_records[-1]["rolled_back"] is True
 
 
 def test_convergence_wait_returns_once_checks_pass_after_minimum_observation():
@@ -424,5 +424,5 @@ def test_a_failed_automatic_rollback_can_be_retried_with_rollback():
 
     assert not retried.is_error
     assert lab.applied_lines("r3") == []
-    assert manager.changes[0]["rolled_back"] is True
+    assert manager.change_records[0]["rolled_back"] is True
     assert manager.rollback("r3").is_error  # nothing left to undo

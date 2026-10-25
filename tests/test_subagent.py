@@ -309,7 +309,7 @@ def test_parent_inspects_two_routers_in_one_turn_then_submits_a_diagnosis():
     )
     parent = Agent(
         llm=parent_llm,
-        tools=build_tools(lab, TOPO, changes, extra=[inspect]),
+        tools=build_tools(lab, TOPO, changes, extra_tools=[inspect]),
         config=config,
         policy=SafetyPolicy(),
         approver=AutoApprover(),
