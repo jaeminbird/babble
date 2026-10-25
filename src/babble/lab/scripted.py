@@ -102,8 +102,12 @@ class ScriptedLab:
         for device, lines in (fix or {}).items():
             if device not in known_device_names:
                 raise ValueError(f"fix refers to unknown device {device!r}")
-            normalized_lines = {_normalize_whitespace(line) for line in lines}
-            self._required_config_lines[device] = normalized_lines - {""}
+            normalized_lines = {_normalize_whitespace(line) for line in lines} - {""}
+            if not normalized_lines:
+                raise ValueError(
+                    f"fix for {device!r} is empty, so the device would be trivially fixed"
+                )
+            self._required_config_lines[device] = normalized_lines
 
         # Applied config lines per device, in the order they were first applied.
         self._applied_config_lines: dict[str, list[str]] = {

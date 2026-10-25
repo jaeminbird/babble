@@ -61,7 +61,9 @@ class ChangeManager:
         self.checks = list(dict.fromkeys(checks))  # duplicates would be counted twice
         self.config = config
         self.audit = audit
-        # One dict per applied change: {device, lines, rationale, rolled_back, regressions}.
+        # One dict per applied change: {device, lines, rationale, rolled_back, rollback_failed,
+        # regressions}. A failed automatic rollback leaves the change on the device, so it is
+        # recorded with rolled_back False and rollback_failed True.
         self.changes: list[dict[str, Any]] = []
         # Per device, (snapshot taken before a kept change, index into self.changes), oldest first.
         self._undo_stacks_by_device: dict[str, list[tuple[str, int]]] = {}
@@ -130,18 +132,20 @@ class ChangeManager:
                     device,
                     lines,
                     rationale,
-                    rolled_back=True,
+                    rolled_back=restore_error is None,
+                    rollback_failed=restore_error is not None,
                     regressed_check_descriptions=regressed_check_descriptions,
                 )
             )
-            self._record_rollback(device, "service checks regressed", regressed_check_descriptions)
             if restore_error is not None:
+                self._record_rollback_failed(device, regressed_check_descriptions, restore_error)
                 return ToolResult(
                     f"Change on {device} broke {summarize(regressed_check_descriptions)}, and the "
                     f"automatic rollback failed: {restore_error}. Check the device before doing "
                     "anything else.",
                     is_error=True,
                 )
+            self._record_rollback(device, "service checks regressed", regressed_check_descriptions)
             return ToolResult(
                 f"Change on {device} was rolled back automatically because it broke: "
                 f"{summarize(regressed_check_descriptions)}. "
@@ -156,6 +160,7 @@ class ChangeManager:
                 lines,
                 rationale,
                 rolled_back=False,
+                rollback_failed=False,
                 regressed_check_descriptions=regressed_check_descriptions,
             )
         )
@@ -256,6 +261,18 @@ class ChangeManager:
             Event("rollback", {"device": device, "reason": reason, "regressions": regressions})
         )
 
+    def _record_rollback_failed(self, device: str, regressions: list[str], restore_error: str) -> None:
+        self.audit.record(
+            Event(
+                "rollback_failed",
+                {
+                    "device": device,
+                    "regressions": regressions,
+                    "restore_error": restore_error,
+                },
+            )
+        )
+
     def _reject(self, device: str, reasons: list[str]) -> None:
         self.audit.record(Event("change_rejected", {"device": device, "reasons": reasons}))
 
@@ -266,6 +283,7 @@ def _change_record(
     rationale: str,
     *,
     rolled_back: bool,
+    rollback_failed: bool,
     regressed_check_descriptions: list[str],
 ) -> dict[str, Any]:
     return {
@@ -273,5 +291,6 @@ def _change_record(
         "lines": list(lines),
         "rationale": rationale,
         "rolled_back": rolled_back,
+        "rollback_failed": rollback_failed,
         "regressions": list(regressed_check_descriptions),
     }

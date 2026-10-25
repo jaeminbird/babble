@@ -69,7 +69,9 @@ def load_topology(name: str, labs_dir: Path | None = None) -> Topology:
     meta_path = lab_dir / "meta.yaml"
     if not meta_path.is_file():
         raise FileNotFoundError(f"no lab named {name!r}: {meta_path} missing")
-    meta_yaml = yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}
+    meta_yaml = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+    if not isinstance(meta_yaml, dict) or not meta_yaml:
+        raise ValueError(f"{meta_path}: meta.yaml must be a non-empty mapping")
     return Topology(
         name=meta_yaml.get("name", name),
         dir=lab_dir,

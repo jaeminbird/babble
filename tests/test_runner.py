@@ -457,6 +457,29 @@ def test_matrix_appends_one_json_line_per_trial_and_prints_progress(tmp_path, ca
     assert printed[0].startswith("[1/3] null-route no_subagents trial 1: solved")
 
 
+def test_matrix_refuses_a_results_file_that_already_exists(tmp_path):
+    results_path = tmp_path / "trials.jsonl"
+    results_path.write_text('{"from": "an earlier run"}\n', encoding="utf-8")
+    llm = FakeLLMClient([])
+
+    with pytest.raises(FileExistsError):
+        run_matrix(
+            [NULL_ROUTE_FAULT],
+            ["no_subagents"],
+            1,
+            None,
+            FaultLab(),
+            lambda: None,
+            llm,
+            TOPOLOGY,
+            tmp_path / "out",
+            AutoApprover(),
+            results_path,
+        )
+    assert results_path.read_text(encoding="utf-8") == '{"from": "an earlier run"}\n'
+    assert llm.calls == []
+
+
 def test_matrix_refuses_a_scenario_for_another_topology(tmp_path):
     other = dataclasses.replace(NULL_ROUTE_FAULT, topology="elsewhere")
     with pytest.raises(ValueError, match="needs topology 'elsewhere'"):

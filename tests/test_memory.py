@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from babble.harness.accounting import Accounting
 from babble.harness.audit import AuditLog
 from babble.harness.loop import SUBMIT_TOOL, Agent
@@ -390,3 +392,10 @@ def test_agent_compacts_into_fresh_conversation_and_finishes(tmp_path: Path):
     assert fresh.startswith(TASK)
     assert "<progress_summary>\nChecked rb: eth2 is down.\n</progress_summary>" in fresh
     assert "<notes>\nrdc eth3 is shutdown\n</notes>" in fresh
+
+
+def test_compact_raises_when_the_summary_is_empty():
+    llm = FakeLLMClient([response(text("   "))])
+    compactor = SummaryCompactor(llm, "claude-haiku-5-5", threshold=1000)
+    with pytest.raises(ValueError, match="empty summary"):
+        compactor.compact("Diagnose it.", _transcript_messages())

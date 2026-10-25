@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import ipaddress
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, get_args
 
@@ -56,10 +56,10 @@ class Scenario:
     topology: str
     difficulty: str
     alert: str
-    inject: list[InjectStep] = field(default_factory=list)
-    checks: list[Check] = field(default_factory=list)
-    root_cause: RootCause = field(default_factory=lambda: RootCause("", "other"))
-    fixable: bool = True
+    inject: list[InjectStep]
+    checks: list[Check]
+    root_cause: RootCause
+    fixable: bool
 
 
 # ----------------------------------------------------------------------- loading
@@ -122,6 +122,9 @@ def load_scenario(path: Path | str) -> Scenario:
     if not root_device and category != "no_fault":
         raise build_error("root_cause device may be empty only for category no_fault")
 
+    if scenario_id != path.stem:
+        raise build_error(f"id {scenario_id!r} must match the file name {path.stem!r}")
+
     return Scenario(
         id=scenario_id,
         title=title,
@@ -137,15 +140,11 @@ def load_scenario(path: Path | str) -> Scenario:
 
 def load_all(dir: Path | str | None = None) -> list[Scenario]:
     """Every *.yaml scenario in `dir` (default: the bundled scenarios), sorted by id. Raises if the
-    directory is missing or two files declare the same id."""
+    directory is missing. Ids are unique because each must match its file name."""
     scenarios_dir = Path(dir) if dir is not None else SCENARIOS_DIR
     if not scenarios_dir.is_dir():
         raise ValueError(f"scenarios directory does not exist: {scenarios_dir}")
     scenarios = [load_scenario(p) for p in sorted(scenarios_dir.glob("*.yaml"))]
-    ids = [scenario.id for scenario in scenarios]
-    duplicate_ids = sorted({scenario_id for scenario_id in ids if ids.count(scenario_id) > 1})
-    if duplicate_ids:
-        raise ValueError(f"duplicate scenario ids in {scenarios_dir}: {', '.join(duplicate_ids)}")
     return sorted(scenarios, key=lambda s: s.id)
 
 

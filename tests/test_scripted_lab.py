@@ -258,3 +258,8 @@ def test_devices_returns_declared_order():
 def test_bad_construction_fails_fast(overrides, message):
     with pytest.raises(ValueError, match=message):
         make_lab(**overrides)
+
+
+def test_fix_with_an_empty_line_list_for_a_device_raises() -> None:
+    with pytest.raises(ValueError, match="fix for 'r1' is empty"):
+        make_lab(fix={"r1": []})

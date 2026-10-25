@@ -222,6 +222,7 @@ def test_inject_multiple_steps_in_declared_order(topo: Topology) -> None:
         ],
         checks=[],
         root_cause=RootCause(device="r1", category="interface_down"),
+        fixable=True,
     )
     lab = _lab(topo)
     inject(scenario, lab)
@@ -357,19 +358,17 @@ def test_invalid_yaml_is_reported_with_file_name(tmp_path: Path) -> None:
         load_scenario(path)
 
 
+def test_load_scenario_rejects_an_id_that_differs_from_the_file_stem(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="other-name.yaml.*must match the file name"):
+        _load_raw(tmp_path, _base(), name="other-name.yaml")
+
+
 def test_load_all_on_a_directory_with_a_bad_file_names_the_file(tmp_path: Path) -> None:
-    _load_raw(tmp_path, _base(), name="good-one.yaml")
+    _load_raw(tmp_path, {**_base(), "id": "good-one"}, name="good-one.yaml")
     bad = _base()
     bad["difficulty"] = "impossible"
     (tmp_path / "bad-one.yaml").write_text(yaml.safe_dump(bad), encoding="utf-8")
     with pytest.raises(ValueError, match="bad-one.yaml"):
-        load_all(tmp_path)
-
-
-def test_load_all_rejects_two_files_declaring_the_same_id(tmp_path: Path) -> None:
-    _load_raw(tmp_path, _base(), name="first.yaml")
-    _load_raw(tmp_path, _base(), name="second.yaml")
-    with pytest.raises(ValueError, match="duplicate scenario ids.*bad"):
         load_all(tmp_path)
 
 

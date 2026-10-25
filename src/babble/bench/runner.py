@@ -350,9 +350,10 @@ def run_matrix(
     fault_visibility_timeout_seconds: float = 0.0,
     sleep: Callable[[float], None] = time.sleep,
 ) -> list[TrialResult]:
-    """Run every scenario x preset x trial on one topology. Each result is appended to
+    """Run every scenario x preset x trial on one topology. Each result is written to
     `results_path` as one JSON line as soon as it is known, so an interrupted run keeps what it
-    finished. Prints one progress line per trial."""
+    finished. Raises FileExistsError before running anything if `results_path` already exists,
+    so two runs never share one report. Prints one progress line per trial."""
     for scenario in scenarios:
         if scenario.topology != topology.name:
             raise ValueError(
@@ -362,7 +363,8 @@ def run_matrix(
     results_path.parent.mkdir(parents=True, exist_ok=True)
     total = len(scenarios) * len(preset_names) * trials
     results: list[TrialResult] = []
-    with open(results_path, "a", encoding="utf-8", newline="\n") as results_file:
+    # Mode "x" creates the file and fails if it exists, before any trial runs.
+    with open(results_path, "x", encoding="utf-8", newline="\n") as results_file:
         for scenario in scenarios:
             for preset_name in preset_names:
                 harness_config = preset(preset_name, model=model)

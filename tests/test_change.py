@@ -84,6 +84,7 @@ def test_applies_and_reports_every_check_passing():
             "lines": FIX,
             "rationale": RATIONALE,
             "rolled_back": False,
+            "rollback_failed": False,
             "regressions": [],
         }
     ]
@@ -248,6 +249,39 @@ def test_failing_before_and_after_is_not_a_regression():
     assert not result.is_error
     assert audit.of_type("rollback") == []
     assert manager.changes[0]["regressions"] == []
+
+
+class RestoreAlwaysFailsLab(ScriptedLab):
+    def restore(self, device, config):
+        raise LabError("restore broke")
+
+
+def test_failed_automatic_rollback_is_recorded_as_failed_not_rolled_back():
+    manager, _, audit = make_manager_with_lab(
+        [PING_B],
+        lab_cls=RestoreAlwaysFailsLab,
+        lab_overrides=_regression_overrides(),
+    )
+    result = manager.apply("r3", FIX, RATIONALE)
+
+    assert result.is_error
+    assert "automatic rollback failed: restore broke" in result.content
+    assert manager.changes == [
+        {
+            "device": "r3",
+            "lines": FIX,
+            "rationale": RATIONALE,
+            "rolled_back": False,
+            "rollback_failed": True,
+            "regressions": ["ping hb -> 192.168.2.10"],
+        }
+    ]
+    assert _event_types(audit) == ["rollback_failed"]
+    assert audit.of_type("rollback_failed")[0].data == {
+        "device": "r3",
+        "regressions": ["ping hb -> 192.168.2.10"],
+        "restore_error": "restore broke",
+    }
 
 
 # ------------------------------------------------------------- rollback

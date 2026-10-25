@@ -271,6 +271,37 @@ def test_llm_error_stops_the_run_with_an_error_event():
     errors = audit.of_type("error")
     assert errors[0].data["message"] == "RuntimeError: network down"
     assert audit.of_type("stop")[0].data["reason"] == "error"
+    assert result.error_message == "RuntimeError: network down"
+
+
+class _AlwaysCompactCompactor:
+    def should_compact(self, last_usage: Usage) -> bool:
+        return True
+
+    def compact(self, task: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        raise RuntimeError("summary call failed")
+
+
+def test_compactor_error_ends_the_run_as_an_error_in_the_compaction_step():
+    agent, llm, audit = _make(
+        [response(_submit())],
+        compactor=_AlwaysCompactCompactor(),
+    )
+    result = agent.run("task")
+    assert result.stop_reason == "error"
+    assert result.error_message == "RuntimeError: summary call failed"
+    assert llm.calls == []
+    assert audit.of_type("error") and audit.of_type("error")[0].data == {
+        "where": "compaction",
+        "turn": 1,
+        "message": "RuntimeError: summary call failed",
+    }
+    assert audit.of_type("stop")[0].data["reason"] == "error"
+
+
+def test_successful_run_has_no_error_message():
+    agent, _, _ = _make([response(_submit())])
+    assert agent.run("task").error_message is None
 
 
 # ------------------------------------------------------- policy and approval

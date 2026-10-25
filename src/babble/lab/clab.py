@@ -139,7 +139,10 @@ class ClabLab:
         for index, line in enumerate(lines):
             if line.startswith("frr version"):
                 return "".join(lines[index:])
-        return output
+        raise LabError(
+            f"{device} running config has no 'frr version' line, so it cannot be snapshotted "
+            "for frr-reload."
+        )
 
     def restore(self, device: str, config: str) -> None:
         # tee, not a shell redirect: no quoting to survive through a wsl.exe prefix.

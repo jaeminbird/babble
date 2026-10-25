@@ -185,13 +185,13 @@ def test_ping_follows_lab_fix_state():
 
 
 class _ExplodingLab:
-    """A backend whose every method fails in a different way."""
+    """A backend whose every method fails with a LabError, as a real lab does."""
 
     def show(self, device, command):
         raise LabError("container down")
 
     def ping(self, device, target, count=3):
-        raise RuntimeError("boom")
+        raise LabError("ping failed")
 
 
 class _BadPingLab:
@@ -225,9 +225,20 @@ def test_evaluate_unknown_device_is_false():
     assert evaluate(Check("bgp_established", "r9", "10.2.0.1"), lab) is False
 
 
-def test_evaluate_unknown_kind_is_false():
+def test_evaluate_unknown_kind_raises_value_error():
     check = Check("teleport", "r1", "10.0.0.1")  # type: ignore[arg-type]
-    assert evaluate(check, lab_answering_commands({})) is False
+    with pytest.raises(ValueError, match="teleport"):
+        evaluate(check, lab_answering_commands({}))
+
+
+class _ProgrammingErrorLab:
+    def ping(self, device, target, count=3):
+        raise RuntimeError("a bug in the lab backend")
+
+
+def test_evaluate_lets_unexpected_exceptions_propagate():
+    with pytest.raises(RuntimeError, match="a bug in the lab backend"):
+        evaluate(Check("ping", "r1", "10.0.0.1"), _ProgrammingErrorLab())
 
 
 def test_evaluate_on_host_is_false_for_show_checks():

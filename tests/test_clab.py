@@ -186,9 +186,10 @@ def test_snapshot_strips_header_before_frr_version(topo) -> None:
     ]  # fmt: skip
 
 
-def test_snapshot_without_header_returns_output_unchanged(topo) -> None:
+def test_snapshot_without_frr_version_line_raises_naming_the_device(topo) -> None:
     lab, _ = make_lab(topo, lambda argv, _stdin: completed(argv, stdout="hostname r1\n"))
-    assert lab.snapshot("r1") == "hostname r1\n"
+    with pytest.raises(LabError, match="r1.*frr version"):
+        lab.snapshot("r1")
 
 
 def test_restore_writes_file_then_reloads(topo) -> None:
