@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import subprocess
+import sys
+import types
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -8,7 +10,7 @@ from typing import Any
 import pytest
 
 from faultline.lab import clab
-from faultline.lab.clab import RESTORE_FILE, ClabLab, CommandRunner
+from faultline.lab.clab import RESTORE_FILE, ClabLab, CommandRunner, LabManager
 from faultline.lab.topology import load_topology
 from faultline.types import LabError
 
@@ -246,3 +248,108 @@ def test_docker_missing_becomes_lab_error(topo) -> None:
     lab = ClabLab(topo, Broken())
     with pytest.raises(LabError, match="could not run"):
         lab.show("r1", "show version")
+
+
+# -------------------------------------------------------------------- LabManager
+
+
+def make_manager(topo, handler=None) -> tuple[LabManager, FakeRunner]:
+    runner = FakeRunner(handler)
+    return LabManager(topo, runner), runner
+
+
+def test_deploy_runs_containerlab_deploy(topo) -> None:
+    mgr, runner = make_manager(topo)
+    mgr.deploy()
+    assert runner.calls == [["containerlab", "deploy", "-t", str(topo.clab_file), "--reconfigure"]]
+
+
+def test_destroy_runs_containerlab_destroy(topo) -> None:
+    mgr, runner = make_manager(topo)
+    mgr.destroy()
+    assert runner.calls == [["containerlab", "destroy", "-t", str(topo.clab_file), "--cleanup"]]
+
+
+def test_deploy_failure_raises_with_stderr(topo) -> None:
+    mgr, _ = make_manager(topo, lambda argv, _in: completed(argv, rc=1, stderr="no docker"))
+    with pytest.raises(LabError, match="no docker"):
+        mgr.deploy()
+
+
+def test_take_baseline_then_reset_restores_each_router(topo) -> None:
+    def handler(argv, _in):
+        if "running-config" in argv[-1]:
+            device = argv[argv.index("exec") + 1].removeprefix("clab-metro-")
+            return completed(argv, stdout=f"frr version 10.7.1\nhostname {device}\n")
+        return completed(argv)
+
+    mgr, runner = make_manager(topo, handler)
+    mgr.take_baseline()
+    snapshots = [c for c in runner.calls if "running-config" in c[-1]]
+    assert len(snapshots) == len(topo.routers())
+
+    runner.calls.clear()
+    runner.inputs.clear()
+    mgr.reset()
+    restores = [i for i in runner.inputs if i is not None]
+    assert restores == [f"frr version 10.7.1\nhostname {r}\n" for r in topo.routers()]
+
+
+def test_reset_without_baseline_raises(topo) -> None:
+    mgr, runner = make_manager(topo)
+    with pytest.raises(LabError, match="baseline"):
+        mgr.reset()
+    assert runner.calls == []
+
+
+def test_wait_healthy_returns_when_all_checks_pass(topo) -> None:
+    mgr, _ = make_manager(topo)
+    seen: list[object] = []
+
+    def evaluate(lab, check):
+        seen.append((lab, check))
+        return True
+
+    mgr.wait_healthy(timeout=0, evaluate=evaluate)
+    assert len(seen) == len(topo.health_checks)
+    assert all(lab is mgr.lab for lab, _ in seen)
+
+
+def test_wait_healthy_retries_until_checks_pass(topo) -> None:
+    mgr, _ = make_manager(topo)
+    calls = {"n": 0}
+
+    def evaluate(lab, check):
+        calls["n"] += 1
+        return calls["n"] > len(topo.health_checks)  # first pass fails, second passes
+
+    mgr.wait_healthy(timeout=5, interval=0, evaluate=evaluate)
+    assert calls["n"] == 2 * len(topo.health_checks)
+
+
+def test_wait_healthy_treats_lab_errors_as_not_yet_healthy(topo) -> None:
+    mgr, _ = make_manager(topo)
+    calls = {"n": 0}
+
+    def evaluate(lab, check):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise LabError("container not up")
+        return True
+
+    mgr.wait_healthy(timeout=5, interval=0, evaluate=evaluate)
+    assert calls["n"] == 2 * len(topo.health_checks)
+
+
+def test_wait_healthy_times_out_naming_failing_checks(topo) -> None:
+    mgr, _ = make_manager(topo)
+    with pytest.raises(LabError, match="ping ha -> 172.16.0.10"):
+        mgr.wait_healthy(timeout=0, evaluate=lambda lab, check: False)
+
+
+def test_wait_healthy_lazily_imports_netops_checks(topo, monkeypatch) -> None:
+    mgr, _ = make_manager(topo)
+    fake = types.ModuleType("faultline.netops.checks")
+    fake.evaluate = lambda lab, check: True
+    monkeypatch.setitem(sys.modules, "faultline.netops.checks", fake)
+    mgr.wait_healthy(timeout=0)

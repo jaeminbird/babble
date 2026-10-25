@@ -8,10 +8,16 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 from faultline.lab.topology import Topology
-from faultline.types import LabError, PingResult
+from faultline.types import Check, LabBackend, LabError, PingResult
+
+# Decides whether one health check passes on a running lab. Matches the shape of
+# faultline.netops.checks.evaluate, which is imported lazily when no callable is given.
+Evaluate = Callable[[LabBackend, Check], bool]
 
 WSL_PREFIX_ENV = "FAULTLINE_WSL_DISTRO"
 _DRIVE = re.compile(r"^([A-Za-z]):/(.*)$")
@@ -139,3 +145,73 @@ class ClabLab:
 
     def host_exec(self, device: str, argv: list[str]) -> str:
         return self._exec(device, argv).stdout
+
+
+class LabManager:
+    """Deploys and destroys a topology, and snapshots and resets its routers."""
+
+    def __init__(self, topology: Topology, runner: CommandRunner) -> None:
+        self.topology = topology
+        self.runner = runner
+        self.lab = ClabLab(topology, runner)
+        self._baseline: dict[str, str] = {}
+
+    def deploy(self) -> None:
+        path = self.runner.path(self.topology.clab_file)
+        self._clab(["deploy", "-t", path, "--reconfigure"], timeout=900)
+
+    def destroy(self) -> None:
+        path = self.runner.path(self.topology.clab_file)
+        self._clab(["destroy", "-t", path, "--cleanup"], timeout=600)
+
+    def _clab(self, args: list[str], timeout: float) -> None:
+        try:
+            proc = self.runner.run(["containerlab", *args], timeout=timeout)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise LabError(f"could not run containerlab: {exc}") from exc
+        if proc.returncode != 0:
+            detail = proc.stderr.strip() or proc.stdout.strip() or f"exit {proc.returncode}"
+            raise LabError(f"containerlab {args[0]} failed: {detail}")
+
+    def wait_healthy(
+        self,
+        timeout: float = 120,
+        interval: float = 5,
+        evaluate: Evaluate | None = None,
+    ) -> None:
+        """Poll every health check until all pass. Raises LabError when time runs out."""
+        if evaluate is None:
+            # Lazy: netops.checks is written separately and may not exist on every branch.
+            from faultline.netops.checks import evaluate as default_evaluate
+
+            evaluate = default_evaluate
+        deadline = time.monotonic() + timeout
+        while True:
+            failing = [
+                check
+                for check in self.topology.health_checks
+                if not _passes(evaluate, self.lab, check)
+            ]
+            if not failing:
+                return
+            if time.monotonic() >= deadline:
+                names = ", ".join(c.describe() for c in failing)
+                raise LabError(f"lab not healthy after {timeout}s; failing: {names}")
+            time.sleep(interval)
+
+    def take_baseline(self) -> None:
+        self._baseline = {r: self.lab.snapshot(r) for r in self.topology.routers()}
+
+    def reset(self) -> None:
+        if not self._baseline:
+            raise LabError("no baseline to reset to; call take_baseline() first")
+        for router, config in self._baseline.items():
+            self.lab.restore(router, config)
+
+
+def _passes(evaluate: Evaluate, lab: LabBackend, check: Check) -> bool:
+    try:
+        return bool(evaluate(lab, check))
+    except LabError:
+        # A container that is not up yet is simply not healthy yet.
+        return False
