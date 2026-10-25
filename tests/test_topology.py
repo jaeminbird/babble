@@ -82,11 +82,11 @@ def test_health_checks_cover_baseline_and_sessions(topo: Topology) -> None:
     ]:
         assert Check("bgp_established", device, neighbor) in checks
     # Every iBGP session, both ends.
-    core = {"r1": "10.255.0.1", "r2": "10.255.0.2", "r3": "10.255.0.3"}
-    for a in core:
-        for b, b_loopback in core.items():
-            if a != b:
-                assert Check("bgp_established", a, b_loopback) in checks
+    core_loopbacks = {"r1": "10.255.0.1", "r2": "10.255.0.2", "r3": "10.255.0.3"}
+    for router in core_loopbacks:
+        for peer, peer_loopback in core_loopbacks.items():
+            if router != peer:
+                assert Check("bgp_established", router, peer_loopback) in checks
 
 
 def test_routers_and_hosts_helpers_on_synthetic_topology(tmp_path: Path) -> None:
@@ -103,11 +103,11 @@ def test_routers_and_hosts_helpers_on_synthetic_topology(tmp_path: Path) -> None
         "  - {kind: ping, device: h1, target: 10.0.0.1}\n",
         encoding="utf-8",
     )
-    t = load_topology("tiny", labs_dir=tmp_path)
-    assert t.routers() == ["r1"]
-    assert t.hosts() == ["h1"]
-    assert t.health_checks == [Check("ping", "h1", "10.0.0.1")]
-    text = t.describe()
+    tiny_topology = load_topology("tiny", labs_dir=tmp_path)
+    assert tiny_topology.routers() == ["r1"]
+    assert tiny_topology.hosts() == ["h1"]
+    assert tiny_topology.health_checks == [Check("ping", "h1", "10.0.0.1")]
+    text = tiny_topology.describe()
     assert "r1 (core, AS 65000, loopback 10.255.0.1)" in text
     assert "h1 (host, ip 10.0.0.2)" in text
     assert "r1:eth1 <-> h1:eth1  10.0.0.0/24" in text
