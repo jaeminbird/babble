@@ -75,11 +75,11 @@ class CliApprover:
         self.output_fn(f"Tool: {call.name}")
         self.output_fn(json.dumps(call.input, indent=2, sort_keys=True))
         try:
-            answer = self.input_fn("Approve? [y/N] ")
+            operator_answer = self.input_fn("Approve? [y/N] ")
         except EOFError:
             # No terminal input available: fail closed.
             return False, DECLINED_NOTE
-        if answer.strip().lower() in ("y", "yes"):
+        if operator_answer.strip().lower() in ("y", "yes"):
             return True, "approved by operator"
         return False, DECLINED_NOTE
 
@@ -88,15 +88,17 @@ class ScriptedApprover:
     """Returns pre-set decisions in order. Fails loudly if asked more often than scripted."""
 
     def __init__(self, decisions: list[bool]) -> None:
-        self._decisions = list(decisions)
+        self._scripted_approvals_remaining = list(decisions)
         self.calls: list[tuple[ToolCall, str]] = []
 
     def approve(self, call: ToolCall, reason: str) -> tuple[bool, str]:
         self.calls.append((call, reason))
-        if not self._decisions:
+        if not self._scripted_approvals_remaining:
             raise RuntimeError(f"ScriptedApprover has no decision left for {call.name}")
-        approved = self._decisions.pop(0)
-        return (True, "approved by script") if approved else (False, DECLINED_NOTE)
+        scripted_approval = self._scripted_approvals_remaining.pop(0)
+        if scripted_approval:
+            return True, "approved by script"
+        return False, DECLINED_NOTE
 
 
 def make_approver(mode: ApprovalMode) -> Approver:
