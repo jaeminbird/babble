@@ -5,7 +5,7 @@
 **Like the babbler bird, babble watches your network, finds the fault, and fixes it with your OK.**
 
 Claude investigates. You approve. The network proves the fix, or babble takes it back.<br>
-**12/12** injected network faults fixed and verified on live routers.
+**65/65** trials fixed and verified on live routers: 13 faults, 5 runs each.
 
 [![CI](https://github.com/jaeminbird/babble/actions/workflows/ci.yml/badge.svg)](https://github.com/jaeminbird/babble/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
@@ -31,14 +31,14 @@ Models can already reason about router configs. What stops anyone from letting a
 
 | Stage | The usual way | babble | Measured |
 |---|---|---|---|
-| Investigation | The agent gets a shell | Allowlisted `show` commands only; no pipes, `;` or redirects | **12/12** root causes correct |
+| Investigation | The agent gets a shell | Allowlisted `show` commands only; no pipes, `;` or redirects | **65/65** root causes correct |
 | Changing config | The prompt says "ask first" | One gated tool; approval required, destructive lines refused | **0** unapproved changes |
-| Verifying a fix | Trust the agent's "fixed it" | Wait for BGP/OSPF to converge, then re-run 15 service checks | **12/12** fixes verified on live routers |
-| A fix that breaks something | Someone notices later | Snapshot first; any regression restores it with `frr-reload.py` | **0** collateral damage |
-| Wrong-premise tickets | Agents invent a root cause | Control scenarios: a healthy network and an unfixable lossy link | **2/2** diagnosed correctly, **0** changes |
-| Cost | | Append-only history keeps the prompt cache warm | **$0.072** per fault, **87%** cache hits |
+| Verifying a fix | Trust the agent's "fixed it" | Wait for BGP/OSPF to converge, then re-run the service checks | **55/55** fixes verified on live routers, **pass^5 = 1.00** |
+| A fix that breaks something | Someone notices later | Snapshot first; any regression restores it with `frr-reload.py`, then waits for the broken checks to recover | **0** collateral damage; the trap's obvious fix is rolled back on live routers |
+| Wrong-premise tickets | Agents invent a root cause | Control scenarios: a healthy network and an unfixable lossy link | **10/10** diagnosed correctly, **0** changes |
+| Cost | | Append-only history keeps the prompt cache warm | **$0.075** per fault, **87%** cache hits |
 
-<sub>Method: `babble bench --scenarios all --presets full --trials 1` on 2026-10-25, Claude Opus 5.5, 12 scenarios on a six-router FRRouting 10.7.1 network in containerlab. One trial per scenario, so there is no reliability (pass^k) claim yet. Rollback is covered by tests, but no live change has needed it.</sub>
+<sub>Method: `babble bench --scenarios all --presets full --trials 5` on 2026-10-25, Claude Opus 5.5, 13 scenarios on a six-router FRRouting 10.7.1 network in containerlab, every trial reset to the config saved at deploy time. The agent never took the trap's bad fix in 5 tries, so live rollback is shown by `tests/test_live_trap.py`, which pushes that fix through the change manager on the real routers.</sub>
 
 ## A real run
 
@@ -95,6 +95,7 @@ WSL stops an idle distro, which stops the lab. Keep it alive during long runs wi
 | static-blackhole | static null route shadows a BGP route | medium |
 | ospf-loopback-missing | loopback left out of OSPF, so iBGP to it drops | hard |
 | next-hop-self-missing | iBGP next hop unreachable for one peer | hard |
+| shared-prefix-list-trap | filter reuses a prefix-list, so the obvious fix cuts off site B | hard, trap |
 | link-degradation | 40% packet loss; config cannot fix it | hard, control |
 | no-fault-control | healthy network, vague complaint | control |
 
@@ -139,7 +140,7 @@ alert --> agent loop (raw Messages API, append-only history)
 
 - **The raw API, no framework.** The loop is about 440 lines, so every harness feature can be switched off and measured.
 - **Append-only history.** Assistant turns go back exactly as returned, tool output is truncated before it enters history, and compaction starts a fresh conversation. That keeps preserved thinking valid and the prompt cache warm.
-- **Offline tests.** 509 tests run against a scripted lab and a scripted model, with no Docker or API key; every loop test asserts that history was never edited.
+- **Offline tests.** 531 tests run against a scripted lab and a scripted model, with no Docker or API key; every loop test asserts that history was never edited.
 
 The build plan, contracts and live-verified FRR details are in [docs/PLAN.md](docs/PLAN.md).
 
@@ -147,10 +148,10 @@ The build plan, contracts and live-verified FRR details are in [docs/PLAN.md](do
 
 | State | Item |
 |---|---|
-| Done | Harness, safety layer, 12 scenarios, bench and report; first full pass solved 12/12 |
+| Done | Harness, safety layer, 13 scenarios including a rollback trap, bench and report; 65/65 at k = 5 |
 | Testing | Ablations: Opus solves every scenario, so they only separate cost so far |
-| Planned | Harder scenarios: two faults at once, misleading symptoms, and a trap whose obvious fix breaks something, so rollback fires live |
-| Planned | Repeated trials for pass^k, and a larger topology where subagents earn their keep |
+| Planned | Harder scenarios: two faults at once, misleading symptoms, false-premise tickets |
+| Planned | A larger multi-vendor topology (FRR, SR Linux, Juniper) where subagents earn their keep |
 
 Issues and PRs welcome, especially fault scenarios drawn from real outages.
 

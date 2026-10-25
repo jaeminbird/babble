@@ -1,16 +1,16 @@
 # Roadmap: from demo to serious prototype
 
-babble today: one six-router FRR network, 12 scenarios, Opus 5.5 solves 12/12. That result is real but saturated: the bench can no longer tell whether a change to the harness helps. The next phase makes the problem harder (large, multi-vendor networks with realistic faults) and the harness stronger, using mechanisms that have published evidence behind them.
+babble today: one six-router FRR network, 13 scenarios, Opus 5.5 solves 65/65 at k = 5. That result is real but saturated: the bench can no longer tell whether a change to the harness helps. The next phase makes the problem harder (large, multi-vendor networks with realistic faults) and the harness stronger, using mechanisms that have published evidence behind them.
 
 Every phase keeps the design principles in `CLAUDE.md`. A tool or dependency comes in only when a measured problem needs it.
 
 ## Phase 0: finish the demo
 
-| Item | Why |
+| Item | Status |
 |---|---|
-| Fail-fast fixes, renames, dead-code removal, CI, mypy | In progress from the principles review |
-| A trap scenario whose obvious fix breaks something | Rollback has never fired in a live run |
-| k = 5 trials per scenario | No reliability (pass^k) claim exists yet |
+| Fail-fast fixes, renames, dead-code removal, CI, mypy | Done |
+| A trap scenario whose obvious fix breaks something | Done: `shared-prefix-list-trap`. Opus avoided it 5/5; `tests/test_live_trap.py` shows the rollback on live routers |
+| k = 5 trials per scenario | Done: 65/65, pass^5 = 1.00, $0.075 per trial (2026-10-25) |
 
 ## Phase 1: an eval that doesn't saturate
 
@@ -38,14 +38,14 @@ Raw config lines don't scale across vendors: every vendor would need its own des
 - **Device adapters behind one interface**: normalized reads (`get_bgp_neighbors`, `get_routes`, `get_interfaces`) and typed writes (`bgp_neighbor.set(remote_as=...)`, `interface.set(enabled=...)`), rendered per vendor.
   - FRR: vtysh JSON (what babble does today).
   - Nokia SR Linux: JSON-RPC over HTTP, with its native candidate datastore and confirmed commit.
-  - Third vendor (decision needed below): Arista cEOS via eAPI (JSON-RPC over HTTP, config sessions with a commit timer) or Juniper cJunosEvolved via NETCONF.
+  - Third vendor: Juniper cJunosEvolved via NETCONF (decided 2026-10-25). Free and needs no account; it runs under KVM, so the first task is proving it boots inside WSL.
 - **The agent's tool schema stays identical across vendors.** The policy layer, approval gate and audit log don't change.
 - **Native confirmed commit where the device has it**, emulated snapshot-and-restore where it doesn't (FRR).
 
 ## Phase 4: scale
 
 - **Topologies from netlab** ([netlab.tools](https://netlab.tools/platforms/)): one topology file generates addressing and configs across FRR, SR Linux, cEOS and Junos, and `netlab validate` provides service checks.
-- **Target: about 80 to 100 nodes on this machine**, mostly FRR, plus about 6 SR Linux and 2 to 3 nodes of the third vendor. SR Linux and cEOS cost about 1.2 GB each; FRR is about 20 MB.
+- **Target: about 80 to 100 nodes on this machine**, mostly FRR, plus about 6 SR Linux and 2 to 3 nodes of the third vendor. SR Linux costs about 1.2 GB per node; FRR is about 20 MB.
 - **Fault classes small labs miss**: route leaks, route-reflector misconfiguration, MTU/fragmentation over tunnels, one bad ECMP member, BFD mismatch, VRF and route-target leaks, EVPN/VXLAN faults, and cross-vendor policy defaults (SR Linux and Junos reject eBGP routes by default; FRR doesn't).
 - **Context at scale**: programmatic tool calling for fan-out ("BGP summary on all 100 routers, return non-Established peers") and deferred tool loading per vendor ([advanced tool use](https://www.anthropic.com/engineering/advanced-tool-use)).
 
@@ -67,7 +67,7 @@ Raw config lines don't scale across vendors: every vendor would need its own des
 - **A bare-shell agent**: works for code, loses for networks (ANI-Gamut).
 - **Cross-incident memory**: stale lessons from one topology are a correctness risk.
 
-## Decisions needed
+## Decisions made
 
-1. **Third vendor**: Arista cEOS (best OpenConfig, netlab and Batfish support; needs a free arista.com registration and a manual image import) or Juniper cJunosEvolved (free, no account, but runs under KVM, which needs testing inside WSL).
-2. **Budget for bench runs**: k = 5 trials on a larger generated bench is roughly hundreds of Opus runs per ablation sweep.
+1. **Third vendor**: Juniper cJunosEvolved (2026-10-25), over Arista cEOS.
+2. **Budget for bench runs**: $10 for Phase 0 (2026-10-25). A Phase 1 sweep on a generated bench needs its own budget.
