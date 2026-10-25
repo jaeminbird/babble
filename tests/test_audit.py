@@ -282,3 +282,24 @@ def test_tagged_logs_from_two_children_share_one_chain(tmp_path):
 
     assert [e.data["subagent"] for e in parent.events] == ["r1", "r2"]
     assert verify_chain(path)
+
+
+# ------------------------------------------- blank lines and tag collisions
+
+
+def test_opening_a_log_with_a_blank_line_raises_naming_the_line(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    _write_log(path, _events()[:2])
+    lines = _lines(path)
+    lines.insert(1, "")
+    _write_lines(path, lines)
+    with pytest.raises(ValueError, match=r"audit\.jsonl:2: blank line"):
+        AuditLog(path)
+
+
+def test_tag_that_collides_with_event_data_raises_instead_of_overwriting():
+    parent = AuditLog()
+    tagged = TaggedAuditLog(parent, device="r1")
+    with pytest.raises(ValueError, match="device"):
+        tagged.record(Event("tool_call", {"device": "r3"}))
+    assert parent.events == []

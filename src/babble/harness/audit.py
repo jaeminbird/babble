@@ -38,7 +38,7 @@ class AuditLog:
         self._lock = threading.Lock()
         if path is not None and path.exists():
             # Continue the chain from an existing file rather than starting a new one.
-            last_line = _last_nonblank_line(path)
+            last_line = _last_line_of_existing_log(path)
             if last_line is not None:
                 self._previous_sha256 = json.loads(last_line)["sha256"]
 
@@ -69,6 +69,11 @@ class TaggedAuditLog:
         self.tags = tags
 
     def record(self, event: Event) -> None:
+        colliding_keys = self.tags.keys() & event.data.keys()
+        if colliding_keys:
+            raise ValueError(
+                f"tag keys {sorted(colliding_keys)} collide with keys in event {event.type!r}"
+            )
         self.parent.record(Event(event.type, {**event.data, **self.tags}, event.ts))
 
 
@@ -95,10 +100,13 @@ def verify_chain(path: Path) -> bool:
     return True
 
 
-def _last_nonblank_line(path: Path) -> str | None:
-    last_nonblank: str | None = None
+def _last_line_of_existing_log(path: Path) -> str | None:
+    """The final line of an existing log, or None for an empty file. Blank lines are an error,
+    the same as in verify_chain."""
+    last_line: str | None = None
     with open(path, encoding="utf-8") as log_file:
-        for raw_line in log_file:
-            if raw_line.strip():
-                last_nonblank = raw_line.strip()
-    return last_nonblank
+        for line_number, raw_line in enumerate(log_file, start=1):
+            if not raw_line.strip():
+                raise ValueError(f"{path}:{line_number}: blank line in audit log")
+            last_line = raw_line
+    return last_line
