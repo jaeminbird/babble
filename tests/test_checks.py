@@ -35,7 +35,7 @@ OSPF_INIT = json.dumps(
 )
 
 
-def lab_with(output_by_command, device="r1", **kwargs):
+def lab_answering_commands(output_by_command, device="r1", **kwargs):
     """A ScriptedLab where `device` answers each command with a fixed output."""
     responses = {(device, cmd): out for cmd, out in output_by_command.items()}
     return ScriptedLab(devices=[device, "ha"], responses=responses, hosts={"ha"}, **kwargs)
@@ -45,27 +45,27 @@ def lab_with(output_by_command, device="r1", **kwargs):
 
 
 def test_bgp_established_passes_on_established_session():
-    lab = lab_with({BGP_CMD: BGP_UP})
+    lab = lab_answering_commands({BGP_CMD: BGP_UP})
     assert evaluate(Check("bgp_established", "r1", "10.2.0.1"), lab) is True
 
 
 def test_bgp_established_fails_on_other_state():
-    lab = lab_with({BGP_CMD: BGP_DOWN})
+    lab = lab_answering_commands({BGP_CMD: BGP_DOWN})
     assert evaluate(Check("bgp_established", "r1", "10.2.0.1"), lab) is False
 
 
 def test_bgp_established_fails_when_neighbor_missing():
-    lab = lab_with({BGP_CMD: "{}"})
+    lab = lab_answering_commands({BGP_CMD: "{}"})
     assert evaluate(Check("bgp_established", "r1", "10.2.0.1"), lab) is False
 
 
 def test_bgp_established_fails_on_garbage_output():
-    lab = lab_with({BGP_CMD: "% No such neighbor"})
+    lab = lab_answering_commands({BGP_CMD: "% No such neighbor"})
     assert evaluate(Check("bgp_established", "r1", "10.2.0.1"), lab) is False
 
 
 def test_bgp_established_fails_when_output_is_a_list():
-    lab = lab_with({BGP_CMD: "[1, 2, 3]"})
+    lab = lab_answering_commands({BGP_CMD: "[1, 2, 3]"})
     assert evaluate(Check("bgp_established", "r1", "10.2.0.1"), lab) is False
 
 
@@ -73,22 +73,22 @@ def test_bgp_established_fails_when_output_is_a_list():
 
 
 def test_route_present_passes_with_nonempty_route_list():
-    lab = lab_with({ROUTE_CMD: ROUTE_UP})
+    lab = lab_answering_commands({ROUTE_CMD: ROUTE_UP})
     assert evaluate(Check("route_present", "r1", "172.16.0.0/24"), lab) is True
 
 
 def test_route_present_fails_on_empty_object():
-    lab = lab_with({ROUTE_CMD: "{}"})
+    lab = lab_answering_commands({ROUTE_CMD: "{}"})
     assert evaluate(Check("route_present", "r1", "172.16.0.0/24"), lab) is False
 
 
 def test_route_present_fails_on_empty_route_list():
-    lab = lab_with({ROUTE_CMD: json.dumps({"172.16.0.0/24": []})})
+    lab = lab_answering_commands({ROUTE_CMD: json.dumps({"172.16.0.0/24": []})})
     assert evaluate(Check("route_present", "r1", "172.16.0.0/24"), lab) is False
 
 
 def test_route_present_fails_on_non_json_output():
-    lab = lab_with({ROUTE_CMD: "% Network not in table"})
+    lab = lab_answering_commands({ROUTE_CMD: "% Network not in table"})
     assert evaluate(Check("route_present", "r1", "172.16.0.0/24"), lab) is False
 
 
@@ -96,17 +96,17 @@ def test_route_present_fails_on_non_json_output():
 
 
 def test_ospf_full_passes_on_full_neighbor():
-    lab = lab_with({OSPF_CMD: OSPF_FULL})
+    lab = lab_answering_commands({OSPF_CMD: OSPF_FULL})
     assert evaluate(Check("ospf_full", "r1", "10.255.0.2"), lab) is True
 
 
 def test_ospf_full_fails_on_init_neighbor():
-    lab = lab_with({OSPF_CMD: OSPF_INIT})
+    lab = lab_answering_commands({OSPF_CMD: OSPF_INIT})
     assert evaluate(Check("ospf_full", "r1", "10.255.0.2"), lab) is False
 
 
 def test_ospf_full_fails_when_router_id_absent():
-    lab = lab_with({OSPF_CMD: OSPF_FULL})
+    lab = lab_answering_commands({OSPF_CMD: OSPF_FULL})
     assert evaluate(Check("ospf_full", "r1", "10.255.0.3"), lab) is False
 
 
@@ -114,8 +114,8 @@ def test_ospf_full_accepts_state_or_converged_fields():
     by_state = json.dumps({"neighbors": {"10.255.0.2": [{"state": "Full"}]}})
     by_converged = json.dumps({"neighbors": {"10.255.0.2": [{"converged": "Full"}]}})
     check = Check("ospf_full", "r1", "10.255.0.2")
-    assert evaluate(check, lab_with({OSPF_CMD: by_state})) is True
-    assert evaluate(check, lab_with({OSPF_CMD: by_converged})) is True
+    assert evaluate(check, lab_answering_commands({OSPF_CMD: by_state})) is True
+    assert evaluate(check, lab_answering_commands({OSPF_CMD: by_converged})) is True
 
 
 def test_ospf_full_any_entry_is_enough():
@@ -130,7 +130,10 @@ def test_ospf_full_any_entry_is_enough():
             }
         }
     )
-    assert evaluate(Check("ospf_full", "r1", "10.255.0.2"), lab_with({OSPF_CMD: out})) is True
+    assert (
+        evaluate(Check("ospf_full", "r1", "10.255.0.2"), lab_answering_commands({OSPF_CMD: out}))
+        is True
+    )
 
 
 @pytest.mark.parametrize(
@@ -146,7 +149,7 @@ def test_ospf_full_any_entry_is_enough():
     ],
 )
 def test_ospf_full_garbage_fails_without_raising(garbage):
-    lab = lab_with({OSPF_CMD: garbage})
+    lab = lab_answering_commands({OSPF_CMD: garbage})
     assert evaluate(Check("ospf_full", "r1", "10.255.0.2"), lab) is False
 
 
@@ -218,17 +221,17 @@ def test_evaluate_handles_non_string_show_output():
 
 
 def test_evaluate_unknown_device_is_false():
-    lab = lab_with({BGP_CMD: BGP_UP})
+    lab = lab_answering_commands({BGP_CMD: BGP_UP})
     assert evaluate(Check("bgp_established", "r9", "10.2.0.1"), lab) is False
 
 
 def test_evaluate_unknown_kind_is_false():
     check = Check("teleport", "r1", "10.0.0.1")  # type: ignore[arg-type]
-    assert evaluate(check, lab_with({})) is False
+    assert evaluate(check, lab_answering_commands({})) is False
 
 
 def test_evaluate_on_host_is_false_for_show_checks():
-    lab = lab_with({BGP_CMD: BGP_UP})
+    lab = lab_answering_commands({BGP_CMD: BGP_UP})
     assert evaluate(Check("bgp_established", "ha", "10.2.0.1"), lab) is False
 
 
@@ -236,24 +239,24 @@ def test_evaluate_on_host_is_false_for_show_checks():
 
 
 def test_evaluate_all_maps_each_check_to_its_result():
-    lab = lab_with({BGP_CMD: BGP_UP, ROUTE_CMD: "{}"})
+    lab = lab_answering_commands({BGP_CMD: BGP_UP, ROUTE_CMD: "{}"})
     up = Check("bgp_established", "r1", "10.2.0.1")
     missing = Check("route_present", "r1", "172.16.0.0/24")
     assert evaluate_all([up, missing], lab) == {up: True, missing: False}
 
 
 def test_evaluate_all_empty_list():
-    assert evaluate_all([], lab_with({})) == {}
+    assert evaluate_all([], lab_answering_commands({})) == {}
 
 
 def test_evaluate_all_collapses_duplicates_without_error():
-    lab = lab_with({BGP_CMD: BGP_UP})
+    lab = lab_answering_commands({BGP_CMD: BGP_UP})
     check = Check("bgp_established", "r1", "10.2.0.1")
     assert evaluate_all([check, check], lab) == {check: True}
 
 
 def test_after_convergence_with_no_wait_evaluates_once_and_never_sleeps():
-    lab = lab_with({BGP_CMD: BGP_DOWN})
+    lab = lab_answering_commands({BGP_CMD: BGP_DOWN})
     check = Check("bgp_established", "r1", "10.2.0.1")
     sleeps = []
     result = evaluate_all_after_convergence(
@@ -288,7 +291,7 @@ def test_after_convergence_polls_until_the_checks_pass():
 
 
 def test_after_convergence_returns_the_last_evaluation_when_the_wait_runs_out():
-    lab = lab_with({BGP_CMD: BGP_DOWN})
+    lab = lab_answering_commands({BGP_CMD: BGP_DOWN})
     check = Check("bgp_established", "r1", "10.2.0.1")
     sleeps = []
     result = evaluate_all_after_convergence(
