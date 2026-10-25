@@ -1,9 +1,11 @@
 import pytest
 
 from faultline.harness.audit import AuditLog
-from faultline.harness.loop import SUBMIT_TOOL
+from faultline.harness.loop import SUBMIT_TOOL, Agent
+from faultline.harness.policy import DECLINED_NOTE, SafetyPolicy, ScriptedApprover
 from faultline.lab.scripted import ScriptedLab
 from faultline.lab.topology import load_topology
+from faultline.llm import FakeLLMClient, assert_append_only, response, tool_use
 from faultline.netops.change import ChangeManager
 from faultline.netops.tools import build_tools
 from faultline.types import FAULT_CATEGORIES, Check, HarnessConfig, LabError, ToolResult, ToolSpec
@@ -288,3 +290,89 @@ def test_unknown_device_for_rollback_lists_valid_devices():
     result = call(tools, "rollback", device="zz")
     assert result.is_error
     assert "Valid devices:" in result.content
+
+
+# ------------------------------------------------------------- end to end
+
+SYSTEM = "You diagnose faults in the metro lab."
+TASK = "ha cannot reach the DC server 172.16.0.10. Diagnose and fix it."
+SUBMIT_FIXED = {
+    "root_cause_device": "r3",
+    "category": "interface_down",
+    "summary": "eth3 on r3 is administratively down; re-enabled it.",
+    "evidence": ["show interface eth3 json reports administrativeStatus down"],
+    "fix_applied": True,
+}
+SUBMIT_UNFIXED = {
+    **SUBMIT_FIXED,
+    "summary": "eth3 is down and the change was declined.",
+    "fix_applied": False,
+}
+PROPOSE = {"device": "r3", "lines": FIX, "rationale": "eth3 is administratively down"}
+
+
+def _run(lab, approver, final_submit):
+    audit = AuditLog()
+    config = HarnessConfig()
+    changes = ChangeManager(lab, [DC_PING], config, audit)
+    tools = build_tools(lab, TOPO, changes, config)
+    llm = FakeLLMClient(
+        [
+            response(tool_use("show", {"device": "r3", "command": "show interface eth3 json"})),
+            response(tool_use("propose_change", PROPOSE)),
+            response(tool_use(SUBMIT_TOOL, final_submit)),
+        ]
+    )
+    agent = Agent(
+        llm=llm,
+        tools=tools,
+        config=config,
+        policy=SafetyPolicy(),
+        approver=approver,
+        audit=audit,
+        system_prompt=SYSTEM,
+    )
+    return agent.run(TASK), llm, audit
+
+
+def test_agent_diagnoses_and_fixes_the_lab_through_the_tools():
+    lab = make_lab()
+    approver = ScriptedApprover([True])
+    result, llm, audit = _run(lab, approver, SUBMIT_FIXED)
+
+    assert result.stop_reason == "diagnosis"
+    assert result.diagnosis is not None
+    assert result.diagnosis.root_cause_device == "r3"
+    assert result.diagnosis.fix_applied is True
+    assert lab.state == "fixed"
+    assert lab.applied_lines("r3") == FIX
+
+    assert len(approver.calls) == 1
+    gated_call, _reason = approver.calls[0]
+    assert gated_call.name == "propose_change"
+    assert gated_call.input == PROPOSE
+    assert result.approvals == 1
+    assert result.denials == 0
+    assert [e.data["device"] for e in audit.of_type("change_applied")] == ["r3"]
+    assert_append_only(llm.calls)
+
+
+def test_agent_stays_broken_when_the_operator_declines_the_change():
+    lab = make_lab()
+    approver = ScriptedApprover([False])
+    result, llm, audit = _run(lab, approver, SUBMIT_UNFIXED)
+
+    assert result.stop_reason == "diagnosis"
+    assert result.diagnosis is not None
+    assert result.diagnosis.fix_applied is False
+    assert lab.state == "broken"
+    assert lab.config_calls == []
+    assert result.approvals == 0
+    assert result.denials == 1
+    assert audit.of_type("change_applied") == []
+
+    # The model saw the decline as an error result on its propose_change call.
+    declined = llm.calls[2]["messages"][-1]["content"][0]
+    assert declined["content"] == DECLINED_NOTE
+    assert declined["is_error"] is True
+    assert_append_only(llm.calls)
