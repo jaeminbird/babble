@@ -306,7 +306,7 @@ def test_wait_healthy_returns_when_all_checks_pass(topo) -> None:
     mgr, _ = make_manager(topo)
     seen: list[object] = []
 
-    def evaluate(lab, check):
+    def evaluate(check, lab):
         seen.append((lab, check))
         return True
 
@@ -319,7 +319,7 @@ def test_wait_healthy_retries_until_checks_pass(topo) -> None:
     mgr, _ = make_manager(topo)
     calls = {"n": 0}
 
-    def evaluate(lab, check):
+    def evaluate(check, lab):
         calls["n"] += 1
         return calls["n"] > len(topo.health_checks)  # first pass fails, second passes
 
@@ -331,7 +331,7 @@ def test_wait_healthy_treats_lab_errors_as_not_yet_healthy(topo) -> None:
     mgr, _ = make_manager(topo)
     calls = {"n": 0}
 
-    def evaluate(lab, check):
+    def evaluate(check, lab):
         calls["n"] += 1
         if calls["n"] == 1:
             raise LabError("container not up")
@@ -344,7 +344,7 @@ def test_wait_healthy_treats_lab_errors_as_not_yet_healthy(topo) -> None:
 def test_wait_healthy_times_out_naming_failing_checks(topo) -> None:
     mgr, _ = make_manager(topo)
     with pytest.raises(LabError, match="ping ha -> 172.16.0.10"):
-        mgr.wait_healthy(timeout=0, evaluate=lambda lab, check: False)
+        mgr.wait_healthy(timeout=0, evaluate=lambda check, lab: False)
 
 
 def test_wait_healthy_lazily_imports_netops_checks(topo, monkeypatch) -> None:

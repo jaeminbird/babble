@@ -17,7 +17,7 @@ from faultline.types import Check, LabBackend, LabError, PingResult
 
 # Decides whether one health check passes on a running lab. Matches the shape of
 # faultline.netops.checks.evaluate, which is imported lazily when no callable is given.
-Evaluate = Callable[[LabBackend, Check], bool]
+Evaluate = Callable[[Check, LabBackend], bool]
 
 WSL_PREFIX_ENV = "FAULTLINE_WSL_DISTRO"
 _DRIVE = re.compile(r"^([A-Za-z]):/(.*)$")
@@ -211,7 +211,7 @@ class LabManager:
 
 def _passes(evaluate: Evaluate, lab: LabBackend, check: Check) -> bool:
     try:
-        return bool(evaluate(lab, check))
+        return bool(evaluate(check, lab))
     except LabError:
         # A container that is not up yet is simply not healthy yet.
         return False
