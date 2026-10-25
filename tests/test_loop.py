@@ -681,7 +681,7 @@ def test_calls_after_a_submission_in_the_same_turn_do_not_run():
     assert result.messages[2]["content"][1] == {
         "type": "tool_result",
         "tool_use_id": "t2",
-        "content": "not run: diagnosis already submitted",
+        "content": "not run: the run already finished",
         "is_error": True,
     }
     assert result.stop_reason == "diagnosis"
@@ -829,6 +829,6 @@ def test_calls_after_a_custom_finish_in_the_same_turn_do_not_run():
     assert result.messages[2]["content"][1] == {
         "type": "tool_result",
         "tool_use_id": "t2",
-        "content": "not run: diagnosis already submitted",
+        "content": "not run: the run already finished",
         "is_error": True,
     }

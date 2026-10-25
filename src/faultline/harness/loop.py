@@ -31,7 +31,7 @@ SUBMIT_TOOL = "submit_diagnosis"
 SUBMIT_FIELDS = ("root_cause_device", "category", "summary", "evidence", "fix_applied")
 
 CUT_OFF = "not run: response was cut off"
-SKIPPED = "not run: diagnosis already submitted"
+SKIPPED_AFTER_FINISH = "not run: the run already finished"
 
 # Format with finish_tool_name=... before sending.
 NUDGE = (
@@ -288,7 +288,7 @@ class _Run:
     def _gate(self, call: ToolCall, spec: ToolSpec | None) -> ToolResult | None:
         """Return a final result if the call must not run, or None to run it."""
         if self.finished:
-            return ToolResult(SKIPPED, is_error=True)
+            return ToolResult(SKIPPED_AFTER_FINISH, is_error=True)
         if spec is None:
             return ToolResult(f"Unknown tool: {call.name}", is_error=True)
         for hook in self.agent.pre_hooks:
