@@ -1,7 +1,7 @@
 import pytest
 
-from babbler.lab.scripted import ScriptedLab
-from babbler.types import LabError
+from babble.lab.scripted import ScriptedLab
+from babble.types import LabError
 
 ROUTE = "show ip route 172.16.0.0/24 json"
 ROUTE_JSON = '{"172.16.0.0/24": [{"prefix": "172.16.0.0/24", "protocol": "bgp", "selected": true}]}'

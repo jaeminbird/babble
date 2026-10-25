@@ -9,10 +9,10 @@ from typing import Any
 
 import pytest
 
-from babbler.lab import clab
-from babbler.lab.clab import RESTORE_FILE, ClabLab, CommandRunner, LabManager
-from babbler.lab.topology import load_topology
-from babbler.types import LabError
+from babble.lab import clab
+from babble.lab.clab import RESTORE_FILE, ClabLab, CommandRunner, LabManager
+from babble.lab.topology import load_topology
+from babble.types import LabError
 
 
 def completed(
@@ -48,12 +48,12 @@ class FakeRunner(CommandRunner):
 
 
 def test_from_env_without_distro_has_no_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("BABBLER_WSL_DISTRO", raising=False)
+    monkeypatch.delenv("BABBLE_WSL_DISTRO", raising=False)
     assert CommandRunner.from_env().prefix == []
 
 
 def test_from_env_with_distro_wraps_in_wsl(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("BABBLER_WSL_DISTRO", "Ubuntu-24.04")
+    monkeypatch.setenv("BABBLE_WSL_DISTRO", "Ubuntu-24.04")
     assert CommandRunner.from_env().prefix == [
         "wsl",
         "-d",
@@ -83,14 +83,14 @@ def test_run_prepends_prefix_and_passes_stdin(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_path_without_prefix_is_unchanged() -> None:
-    p = Path("E:/babbler-wt/clab-backend/labs/metro/metro.clab.yml")
+    p = Path("E:/babble-wt/clab-backend/labs/metro/metro.clab.yml")
     assert CommandRunner().path(p) == str(p)
 
 
 def test_path_under_wsl_maps_drive_to_mnt() -> None:
-    p = Path("E:/babbler-wt/clab-backend/labs/metro/metro.clab.yml")
+    p = Path("E:/babble-wt/clab-backend/labs/metro/metro.clab.yml")
     runner = CommandRunner(["wsl", "--"])
-    assert runner.path(p) == "/mnt/e/babbler-wt/clab-backend/labs/metro/metro.clab.yml"
+    assert runner.path(p) == "/mnt/e/babble-wt/clab-backend/labs/metro/metro.clab.yml"
 
 
 def test_path_under_wsl_keeps_posix_paths() -> None:
@@ -349,7 +349,7 @@ def test_wait_healthy_times_out_naming_failing_checks(topo) -> None:
 
 def test_wait_healthy_lazily_imports_netops_checks(topo, monkeypatch) -> None:
     mgr, _ = make_manager(topo)
-    fake = types.ModuleType("babbler.netops.checks")
+    fake = types.ModuleType("babble.netops.checks")
     fake.evaluate = lambda lab, check: True
-    monkeypatch.setitem(sys.modules, "babbler.netops.checks", fake)
+    monkeypatch.setitem(sys.modules, "babble.netops.checks", fake)
     mgr.wait_healthy(timeout=0)

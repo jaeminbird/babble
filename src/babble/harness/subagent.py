@@ -10,14 +10,14 @@ import dataclasses
 import ipaddress
 from typing import Any
 
-from babbler.harness.accounting import Accounting
-from babbler.harness.audit import AuditLog, TaggedAuditLog
-from babbler.harness.loop import Agent, RunResult
-from babbler.harness.policy import SafetyPolicy
-from babbler.harness.prompts import SUBAGENT_PROMPT
-from babbler.lab.topology import Topology
-from babbler.netops.commands import validate_show
-from babbler.types import (
+from babble.harness.accounting import Accounting
+from babble.harness.audit import AuditLog, TaggedAuditLog
+from babble.harness.loop import Agent, RunResult
+from babble.harness.policy import SafetyPolicy
+from babble.harness.prompts import SUBAGENT_PROMPT
+from babble.lab.topology import Topology
+from babble.netops.commands import validate_show
+from babble.types import (
     Approver,
     Event,
     HarnessConfig,

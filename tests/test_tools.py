@@ -1,14 +1,14 @@
 import pytest
 
-from babbler.harness.audit import AuditLog
-from babbler.harness.loop import SUBMIT_TOOL, Agent
-from babbler.harness.policy import DECLINED_NOTE, SafetyPolicy, ScriptedApprover
-from babbler.lab.scripted import ScriptedLab
-from babbler.lab.topology import load_topology
-from babbler.llm import FakeLLMClient, assert_append_only, response, tool_use
-from babbler.netops.change import ChangeManager
-from babbler.netops.tools import build_tools
-from babbler.types import FAULT_CATEGORIES, Check, HarnessConfig, LabError, ToolResult, ToolSpec
+from babble.harness.audit import AuditLog
+from babble.harness.loop import SUBMIT_TOOL, Agent
+from babble.harness.policy import DECLINED_NOTE, SafetyPolicy, ScriptedApprover
+from babble.lab.scripted import ScriptedLab
+from babble.lab.topology import load_topology
+from babble.llm import FakeLLMClient, assert_append_only, response, tool_use
+from babble.netops.change import ChangeManager
+from babble.netops.tools import build_tools
+from babble.types import FAULT_CATEGORIES, Check, HarnessConfig, LabError, ToolResult, ToolSpec
 
 TOPO = load_topology("metro")
 FIX = ["interface eth3", "no shutdown"]

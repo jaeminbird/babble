@@ -41,7 +41,7 @@ import json
 from collections.abc import Mapping
 from typing import Any, TypeVar
 
-from babbler.types import LabError, PingResult
+from babble.types import LabError, PingResult
 
 _V = TypeVar("_V")
 

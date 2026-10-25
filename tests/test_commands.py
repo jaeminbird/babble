@@ -1,6 +1,6 @@
 import pytest
 
-from babbler.netops.commands import MAX_SHOW_LENGTH, blocked_config, validate_show
+from babble.netops.commands import MAX_SHOW_LENGTH, blocked_config, validate_show
 
 
 @pytest.mark.parametrize(

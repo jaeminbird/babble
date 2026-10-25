@@ -5,8 +5,8 @@ import threading
 
 import pytest
 
-from babbler.harness.audit import GENESIS, AuditLog, TaggedAuditLog, verify_chain
-from babbler.types import Event
+from babble.harness.audit import GENESIS, AuditLog, TaggedAuditLog, verify_chain
+from babble.types import Event
 
 
 def _events() -> list[Event]:

@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from babbler.types import Check
+from babble.types import Check
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_LABS_DIR = REPO_ROOT / "labs"

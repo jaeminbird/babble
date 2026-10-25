@@ -3,21 +3,21 @@ import json
 
 import pytest
 
-from babbler.bench import runner as runner_module
-from babbler.bench.configs import preset
-from babbler.bench.runner import (
+from babble.bench import runner as runner_module
+from babble.bench.configs import preset
+from babble.bench.runner import (
     TrialResult,
     assemble_agent,
     run_matrix,
     run_trial,
     service_checks_for,
 )
-from babbler.bench.scenario import InjectStep, RootCause, Scenario
-from babbler.harness.policy import AutoApprover, ScriptedApprover
-from babbler.lab.scripted import ScriptedLab
-from babbler.lab.topology import load_topology
-from babbler.llm import FakeLLMClient, cost, response, tool_use
-from babbler.types import Check, LabError, PingResult, Usage
+from babble.bench.scenario import InjectStep, RootCause, Scenario
+from babble.harness.policy import AutoApprover, ScriptedApprover
+from babble.lab.scripted import ScriptedLab
+from babble.lab.topology import load_topology
+from babble.llm import FakeLLMClient, cost, response, tool_use
+from babble.types import Check, LabError, PingResult, Usage
 
 TOPOLOGY = load_topology("metro")
 DC = "172.16.0.10"

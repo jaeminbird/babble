@@ -1,7 +1,7 @@
-from babbler.harness.audit import AuditLog
-from babbler.lab.scripted import ScriptedLab
-from babbler.netops.change import ChangeManager
-from babbler.types import Check, HarnessConfig, LabError
+from babble.harness.audit import AuditLog
+from babble.lab.scripted import ScriptedLab
+from babble.netops.change import ChangeManager
+from babble.types import Check, HarnessConfig, LabError
 
 FIX = ["interface eth3", "no shutdown"]
 RATIONALE = "eth3 is administratively down"

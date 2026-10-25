@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 import yaml
 
-import babbler.bench.scenario
-from babbler.bench.scenario import (
+import babble.bench.scenario
+from babble.bench.scenario import (
     SCENARIOS_DIR,
     InjectStep,
     RootCause,
@@ -19,9 +19,9 @@ from babbler.bench.scenario import (
     load_scenario,
     revert_host,
 )
-from babbler.lab.scripted import ScriptedLab
-from babbler.lab.topology import Topology, load_topology
-from babbler.types import FAULT_CATEGORIES
+from babble.lab.scripted import ScriptedLab
+from babble.lab.topology import Topology, load_topology
+from babble.types import FAULT_CATEGORIES
 
 EXPECTED_IDS = [
     "bgp-missing-network",
@@ -66,7 +66,7 @@ def test_loads_all_twelve_in_id_order() -> None:
 
 
 def test_default_dir_is_the_package_scenarios_dir() -> None:
-    assert SCENARIOS_DIR == Path(babbler.bench.scenario.__file__).resolve().parent / "scenarios"
+    assert SCENARIOS_DIR == Path(babble.bench.scenario.__file__).resolve().parent / "scenarios"
     assert SCENARIOS_DIR.is_dir()
     assert [s.id for s in load_all(SCENARIOS_DIR)] == EXPECTED_IDS
 

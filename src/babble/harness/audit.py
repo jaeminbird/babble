@@ -16,7 +16,7 @@ import json
 import threading
 from pathlib import Path
 
-from babbler.types import Event
+from babble.types import Event
 
 GENESIS = "0" * 64
 

@@ -1,7 +1,7 @@
 import pytest
 
-from babbler.bench.configs import PRESETS, preset
-from babbler.types import HarnessConfig
+from babble.bench.configs import PRESETS, preset
+from babble.types import HarnessConfig
 
 
 def test_every_preset_is_named_after_the_one_feature_it_turns_off():

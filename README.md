@@ -1,10 +1,10 @@
 <div align="center">
 
-# babbler
+# babble
 
-**Pied babblers post a sentinel that sings while the flock forages, so the rest can stop looking up. babbler keeps that watch over your network: it finds the fault, fixes it with your OK, and narrates every move.**
+**Pied babblers keep a sentinel singing while the flock forages. As long as the babble goes on, nobody has to look up. babble keeps that watch over your network: it finds the fault, fixes it with your OK, and narrates every move.**
 
-Claude investigates. You approve. The network proves the fix, or babbler takes it back.<br>
+Claude investigates. You approve. The network proves the fix, or babble takes it back.<br>
 **12/12** injected network faults fixed and verified on live routers.
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
@@ -16,7 +16,7 @@ Claude investigates. You approve. The network proves the fix, or babbler takes i
 
 ## What it does
 
-Given an alert like *"Users at site A cannot reach the data center server 172.16.0.10"*, babbler:
+Given an alert like *"Users at site A cannot reach the data center server 172.16.0.10"*, babble:
 
 1. **reads** the alert and the topology,
 2. **investigates** read-only across the routers (`show ip route 10.255.0.3 json`),
@@ -26,9 +26,9 @@ Given an alert like *"Users at site A cannot reach the data center server 172.16
 
 ## Why it's safe to point at a network
 
-Models can already reason about router configs. What stops anyone from letting an agent near production is trust, so babbler moves every safety rule out of the prompt and into the harness. The agent cannot run anything but a `show` command, cannot change config without an approval, and cannot keep a change that breaks a service check.
+Models can already reason about router configs. What stops anyone from letting an agent near production is trust, so babble moves every safety rule out of the prompt and into the harness. The agent cannot run anything but a `show` command, cannot change config without an approval, and cannot keep a change that breaks a service check.
 
-| Stage | The usual way | babbler | Measured |
+| Stage | The usual way | babble | Measured |
 |---|---|---|---|
 | Investigation | The agent gets a shell | Allowlisted `show` commands only; no pipes, `;` or redirects | **12/12** root causes correct |
 | Changing config | The prompt says "ask first" | One gated tool; approval required, destructive lines refused | **0** unapproved changes |
@@ -37,14 +37,14 @@ Models can already reason about router configs. What stops anyone from letting a
 | Wrong-premise tickets | Agents invent a root cause | Control scenarios: a healthy network and an unfixable lossy link | **2/2** diagnosed correctly, **0** changes |
 | Cost | | Append-only history keeps the prompt cache warm | **$0.072** per fault, **87%** cache hits |
 
-<sub>Method: `babbler bench --scenarios all --presets full --trials 1` on 2026-10-25, Claude Opus 5.5, 12 scenarios on a six-router FRRouting 10.7.1 network in containerlab. One trial per scenario, so there is no reliability (pass^k) claim yet. Rollback is covered by tests, but no live change has needed it.</sub>
+<sub>Method: `babble bench --scenarios all --presets full --trials 1` on 2026-10-25, Claude Opus 5.5, 12 scenarios on a six-router FRRouting 10.7.1 network in containerlab. One trial per scenario, so there is no reliability (pass^k) claim yet. Rollback is covered by tests, but no live change has needed it.</sub>
 
 ## A real run
 
 A data-center outage that starts two hops away from where it shows up. Trace from the audit log, trimmed:
 
 ```text
-$ babbler run ospf-loopback-missing
+$ babble run ospf-loopback-missing
   show bgp summary json                         r3
   show ip route 172.16.0.0/24 json              r1
   show bgp neighbors 10.255.0.3 json            r1
@@ -60,12 +60,12 @@ Turns: 10  Cost: $0.1336  Wall time: 55.9s
 ## Quick start
 
 ```sh
-git clone https://github.com/jaeminbird/babbler-wip babbler && cd babbler
+git clone https://github.com/jaeminbird/babble && cd babble
 pip install -e ".[dev]"
 ant auth login                                   # or export ANTHROPIC_API_KEY
-babbler lab up                                   # six FRR routers and three hosts
-babbler lab status                               # the check: every service check should PASS
-babbler run next-hop-self-missing --approval human
+babble lab up                                   # six FRR routers and three hosts
+babble lab status                               # the check: every service check should PASS
+babble run next-hop-self-missing --approval human
 ```
 
 Then do the one human step: read the proposed change and approve or decline it.
@@ -73,7 +73,7 @@ Then do the one human step: read the proposed change and approve or decline it.
 <details>
 <summary><b>Windows (WSL)</b></summary>
 
-Install the [WSL-Containerlab distro](https://containerlab.dev/windows/) and run babbler from Windows with `BABBLER_WSL_DISTRO=Containerlab`; it sends docker and containerlab commands through `wsl -d Containerlab`.
+Install the [WSL-Containerlab distro](https://containerlab.dev/windows/) and run babble from Windows with `BABBLE_WSL_DISTRO=Containerlab`; it sends docker and containerlab commands through `wsl -d Containerlab`.
 
 WSL stops an idle distro, which stops the lab. Keep it alive during long runs with `wsl -d Containerlab -- sleep infinity` in another terminal, or set `instanceIdleTimeout` in `.wslconfig`.
 
@@ -102,8 +102,8 @@ WSL stops an idle distro, which stops the lab. Keep it alive during long runs wi
 **Ablations.** Presets turn one harness feature off at a time: `full`, `no_subagents`, `no_truncation`, `no_caching`, `no_memory`, `no_compaction`, and `no_safety` (no approval, no verification, no rollback).
 
 ```sh
-babbler bench --scenarios all --presets full,no_subagents,no_safety --trials 3
-babbler report runs/<timestamp>/results.jsonl
+babble bench --scenarios all --presets full,no_subagents,no_safety --trials 3
+babble report runs/<timestamp>/results.jsonl
 ```
 
 </details>
@@ -113,11 +113,11 @@ babbler report runs/<timestamp>/results.jsonl
 
 | Command | What it does |
 |---|---|
-| `babbler lab up` / `down` / `status` | Deploy, destroy or health-check the lab |
-| `babbler scenarios` | List scenarios |
-| `babbler run <id> [--preset] [--model] [--approval human\|auto_approve\|auto_deny]` | One trial with a human-readable summary |
-| `babbler bench [--scenarios] [--presets] [--trials] [--model]` | A trial matrix, written to `results.jsonl` and `report.md` |
-| `babbler report <results.jsonl>` | Re-render a report |
+| `babble lab up` / `down` / `status` | Deploy, destroy or health-check the lab |
+| `babble scenarios` | List scenarios |
+| `babble run <id> [--preset] [--model] [--approval human\|auto_approve\|auto_deny]` | One trial with a human-readable summary |
+| `babble bench [--scenarios] [--presets] [--trials] [--model]` | A trial matrix, written to `results.jsonl` and `report.md` |
+| `babble report <results.jsonl>` | Re-render a report |
 
 </details>
 
@@ -155,7 +155,7 @@ Issues and PRs welcome, especially fault scenarios drawn from real outages.
 
 ## Prior art
 
-[NIKA](https://github.com/sands-lab/nika) benchmarks LLM network troubleshooting on FRR, scoring detection, localization and root cause, but does not fix faults or evaluate safety. [AIOpsLab](https://github.com/microsoft/AIOpsLab) and SREGym inject faults into Kubernetes services. [NetArena](https://github.com/Froot-NetSys/NetArena) has a safety metric but runs on Mininet. babbler adds verified fixes, a measured approval and rollback layer, control scenarios and harness ablations.
+[NIKA](https://github.com/sands-lab/nika) benchmarks LLM network troubleshooting on FRR, scoring detection, localization and root cause, but does not fix faults or evaluate safety. [AIOpsLab](https://github.com/microsoft/AIOpsLab) and SREGym inject faults into Kubernetes services. [NetArena](https://github.com/Froot-NetSys/NetArena) has a safety metric but runs on Mininet. babble adds verified fixes, a measured approval and rollback layer, control scenarios and harness ablations.
 
 ## License
 

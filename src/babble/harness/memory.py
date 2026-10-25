@@ -7,8 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from babbler.harness.accounting import Accounting
-from babbler.types import LLMClient, ToolResult, ToolSpec, Usage
+from babble.harness.accounting import Accounting
+from babble.types import LLMClient, ToolResult, ToolSpec, Usage
 
 NO_NOTES = "(no notes yet)"
 

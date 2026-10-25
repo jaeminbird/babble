@@ -1,19 +1,19 @@
 import json
 from pathlib import Path
 
-from babbler.harness.accounting import Accounting
-from babbler.harness.audit import AuditLog
-from babbler.harness.loop import SUBMIT_TOOL, Agent
-from babbler.harness.memory import (
+from babble.harness.accounting import Accounting
+from babble.harness.audit import AuditLog
+from babble.harness.loop import SUBMIT_TOOL, Agent
+from babble.harness.memory import (
     NO_NOTES,
     NotesStore,
     SummaryCompactor,
     make_notes_tool,
     render_transcript,
 )
-from babbler.harness.policy import AutoApprover, SafetyPolicy
-from babbler.llm import FakeLLMClient, assert_append_only, response, text, tool_use
-from babbler.types import HarnessConfig, ToolResult, ToolSpec, Usage
+from babble.harness.policy import AutoApprover, SafetyPolicy
+from babble.llm import FakeLLMClient, assert_append_only, response, text, tool_use
+from babble.types import HarnessConfig, ToolResult, ToolSpec, Usage
 
 
 def _run(store: NotesStore, **tool_input) -> ToolResult:

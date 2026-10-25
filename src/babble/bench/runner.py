@@ -14,19 +14,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from babbler.bench.configs import preset
-from babbler.bench.scenario import Scenario, inject, revert_host
-from babbler.harness.accounting import Accounting
-from babbler.harness.audit import AuditLog
-from babbler.harness.loop import Agent, RunResult
-from babbler.harness.memory import NotesStore, SummaryCompactor, make_notes_tool
-from babbler.harness.policy import SafetyPolicy
-from babbler.harness.prompts import SYSTEM_PROMPT
-from babbler.lab.topology import Topology
-from babbler.netops.change import ChangeManager
-from babbler.netops.checks import evaluate_all, evaluate_all_after_convergence
-from babbler.netops.tools import build_tools
-from babbler.types import (
+from babble.bench.configs import preset
+from babble.bench.scenario import Scenario, inject, revert_host
+from babble.harness.accounting import Accounting
+from babble.harness.audit import AuditLog
+from babble.harness.loop import Agent, RunResult
+from babble.harness.memory import NotesStore, SummaryCompactor, make_notes_tool
+from babble.harness.policy import SafetyPolicy
+from babble.harness.prompts import SYSTEM_PROMPT
+from babble.lab.topology import Topology
+from babble.netops.change import ChangeManager
+from babble.netops.checks import evaluate_all, evaluate_all_after_convergence
+from babble.netops.tools import build_tools
+from babble.types import (
     Approver,
     Check,
     HarnessConfig,
@@ -126,7 +126,7 @@ def assemble_agent(
     extra_tools: list[ToolSpec] = []
     if harness_config.subagents:
         # Lazy: the subagent module is needed only when the subagent ablation is on.
-        from babbler.harness.subagent import make_inspect_device_tool
+        from babble.harness.subagent import make_inspect_device_tool
 
         extra_tools.append(
             make_inspect_device_tool(

@@ -2,11 +2,11 @@ import threading
 import time
 from typing import Any
 
-from babbler.harness.audit import AuditLog
-from babbler.harness.loop import NUDGE, SUBMIT_TOOL, Agent
-from babbler.harness.policy import DECLINED_NOTE, AutoApprover, SafetyPolicy, ScriptedApprover
-from babbler.llm import FakeLLMClient, assert_append_only, response, text, tool_use
-from babbler.types import HarnessConfig, LLMResponse, ToolResult, ToolSpec, Usage
+from babble.harness.audit import AuditLog
+from babble.harness.loop import NUDGE, SUBMIT_TOOL, Agent
+from babble.harness.policy import DECLINED_NOTE, AutoApprover, SafetyPolicy, ScriptedApprover
+from babble.llm import FakeLLMClient, assert_append_only, response, text, tool_use
+from babble.types import HarnessConfig, LLMResponse, ToolResult, ToolSpec, Usage
 
 SYSTEM = "You diagnose faults."
 

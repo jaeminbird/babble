@@ -11,11 +11,11 @@ import ipaddress
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from babbler.harness.loop import SUBMIT_TOOL
-from babbler.lab.topology import Topology
-from babbler.netops.change import ChangeManager
-from babbler.netops.commands import validate_show
-from babbler.types import (
+from babble.harness.loop import SUBMIT_TOOL
+from babble.lab.topology import Topology
+from babble.netops.change import ChangeManager
+from babble.netops.commands import validate_show
+from babble.types import (
     FAULT_CATEGORIES,
     LabBackend,
     LabError,

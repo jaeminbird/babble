@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from babbler.lab.topology import DEFAULT_LABS_DIR, Topology, load_topology
-from babbler.types import Check
+from babble.lab.topology import DEFAULT_LABS_DIR, Topology, load_topology
+from babble.types import Check
 
 LAB = "metro"
 
