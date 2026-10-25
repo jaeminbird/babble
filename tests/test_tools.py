@@ -37,7 +37,7 @@ def make(lab_cls=ScriptedLab, checks=(DC_PING,), extra=(), config=None, **overri
     audit = AuditLog()
     config = config or HarnessConfig()
     changes = ChangeManager(lab, list(checks), config, audit)
-    tools = build_tools(lab, TOPO, changes, config, extra=extra)
+    tools = build_tools(lab, TOPO, changes, extra=extra)
     return {t.name: t for t in tools}, lab, audit, changes
 
 
@@ -315,7 +315,7 @@ def _run(lab, approver, final_submit):
     audit = AuditLog()
     config = HarnessConfig()
     changes = ChangeManager(lab, [DC_PING], config, audit)
-    tools = build_tools(lab, TOPO, changes, config)
+    tools = build_tools(lab, TOPO, changes)
     llm = FakeLLMClient(
         [
             response(tool_use("show", {"device": "r3", "command": "show interface eth3 json"})),
