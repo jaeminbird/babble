@@ -5,8 +5,8 @@ import threading
 
 import pytest
 
-from faultline.harness.audit import GENESIS, AuditLog, TaggedAuditLog, verify_chain
-from faultline.types import Event
+from babbler.harness.audit import GENESIS, AuditLog, TaggedAuditLog, verify_chain
+from babbler.types import Event
 
 
 def _events() -> list[Event]:

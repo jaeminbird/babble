@@ -1,4 +1,4 @@
-"""Command-line entry point: `faultline lab`, `scenarios`, `run`, `bench` and `report`.
+"""Command-line entry point: `babbler lab`, `scenarios`, `run`, `bench` and `report`.
 
 Factories (`build_lab_manager`, `build_llm_client`) are the only places that touch Docker or the
 Anthropic API, so tests replace them with fakes.
@@ -13,21 +13,21 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from faultline.bench.configs import PRESETS, preset
-from faultline.bench.report import (
+from babbler.bench.configs import PRESETS, preset
+from babbler.bench.report import (
     load_results,
     per_scenario_table,
     render_markdown_table,
     summarize_by_preset,
 )
-from faultline.bench.runner import TrialResult, run_matrix, run_trial, trial_file_path
-from faultline.bench.scenario import Scenario, load_all
-from faultline.harness.policy import make_approver
-from faultline.lab.clab import CommandRunner, LabManager
-from faultline.lab.topology import Topology, load_topology
-from faultline.llm import AnthropicClient
-from faultline.netops.checks import evaluate
-from faultline.types import ApprovalMode, LabError, LLMClient
+from babbler.bench.runner import TrialResult, run_matrix, run_trial, trial_file_path
+from babbler.bench.scenario import Scenario, load_all
+from babbler.harness.policy import make_approver
+from babbler.lab.clab import CommandRunner, LabManager
+from babbler.lab.topology import Topology, load_topology
+from babbler.llm import AnthropicClient
+from babbler.netops.checks import evaluate
+from babbler.types import ApprovalMode, LabError, LLMClient
 
 DEFAULT_TOPOLOGY_NAME = "metro"
 APPROVAL_MODES: tuple[str, ...] = ("human", "auto_approve", "auto_deny")
@@ -255,7 +255,7 @@ def render_report(results: list[dict[str, Any]]) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="faultline", description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(prog="babbler", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
 
     lab = commands.add_parser("lab", help="bring the containerlab topology up, down or check it")
@@ -301,8 +301,8 @@ def main(argv: list[str] | None = None) -> int:
         handler: Callable[[argparse.Namespace], int] = args.handler
         return handler(args)
     except UsageError as error:
-        print(f"faultline: {error}", file=sys.stderr)
+        print(f"babbler: {error}", file=sys.stderr)
         return EXIT_USAGE
     except (LabError, OSError) as error:
-        print(f"faultline: {error}", file=sys.stderr)
+        print(f"babbler: {error}", file=sys.stderr)
         return EXIT_FAILURE

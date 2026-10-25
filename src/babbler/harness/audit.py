@@ -16,7 +16,7 @@ import json
 import threading
 from pathlib import Path
 
-from faultline.types import Event
+from babbler.types import Event
 
 GENESIS = "0" * 64
 

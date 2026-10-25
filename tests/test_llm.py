@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from anthropic.types import TextBlock, ToolUseBlock
 
-from faultline.llm import (
+from babbler.llm import (
     PRICING,
     AnthropicClient,
     FakeLLMClient,
@@ -14,7 +14,7 @@ from faultline.llm import (
     text,
     tool_use,
 )
-from faultline.types import Usage
+from babbler.types import Usage
 
 
 def test_pricing_table_covers_the_three_models():

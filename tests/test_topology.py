@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from faultline.lab.topology import DEFAULT_LABS_DIR, Topology, load_topology
-from faultline.types import Check
+from babbler.lab.topology import DEFAULT_LABS_DIR, Topology, load_topology
+from babbler.types import Check
 
 LAB = "metro"
 

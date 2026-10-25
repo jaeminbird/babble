@@ -8,15 +8,15 @@ from typing import Any
 
 import pytest
 
-from faultline import cli
-from faultline.bench.report import load_results
-from faultline.bench.runner import TrialResult
-from faultline.bench.scenario import load_all
-from faultline.lab.scripted import ScriptedLab
-from faultline.lab.topology import Topology, load_topology
-from faultline.llm import FakeLLMClient, response, tool_use
-from faultline.netops import checks
-from faultline.types import LabError, LLMResponse, PingResult
+from babbler import cli
+from babbler.bench.report import load_results
+from babbler.bench.runner import TrialResult
+from babbler.bench.scenario import load_all
+from babbler.lab.scripted import ScriptedLab
+from babbler.lab.topology import Topology, load_topology
+from babbler.llm import FakeLLMClient, response, tool_use
+from babbler.netops import checks
+from babbler.types import LabError, LLMResponse, PingResult
 
 TOPOLOGY = load_topology("metro")
 NO_FAULT_SCENARIO = "no-fault-control"

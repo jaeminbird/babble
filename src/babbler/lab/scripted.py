@@ -41,7 +41,7 @@ import json
 from collections.abc import Mapping
 from typing import Any, TypeVar
 
-from faultline.types import LabError, PingResult
+from babbler.types import LabError, PingResult
 
 _V = TypeVar("_V")
 

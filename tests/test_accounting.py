@@ -2,9 +2,9 @@ import threading
 
 import pytest
 
-from faultline.harness.accounting import Accounting
-from faultline.llm import cost
-from faultline.types import Usage
+from babbler.harness.accounting import Accounting
+from babbler.llm import cost
+from babbler.types import Usage
 
 
 def test_starts_empty():

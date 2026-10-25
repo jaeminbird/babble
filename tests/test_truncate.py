@@ -1,6 +1,6 @@
 import pytest
 
-from faultline.harness.truncate import truncate
+from babbler.harness.truncate import truncate
 
 
 def test_short_text_is_unchanged():

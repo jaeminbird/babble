@@ -1,16 +1,16 @@
 from typing import Any
 
-from faultline.harness.accounting import Accounting
-from faultline.harness.audit import AuditLog
-from faultline.harness.loop import SUBMIT_TOOL, Agent
-from faultline.harness.policy import AutoApprover, SafetyPolicy
-from faultline.harness.subagent import make_inspect_device_tool
-from faultline.lab.scripted import ScriptedLab
-from faultline.lab.topology import load_topology
-from faultline.llm import FakeLLMClient, assert_append_only, response, text, tool_use
-from faultline.netops.change import ChangeManager
-from faultline.netops.tools import build_tools
-from faultline.types import HarnessConfig, LLMResponse, PingResult, ToolResult, Usage
+from babbler.harness.accounting import Accounting
+from babbler.harness.audit import AuditLog
+from babbler.harness.loop import SUBMIT_TOOL, Agent
+from babbler.harness.policy import AutoApprover, SafetyPolicy
+from babbler.harness.subagent import make_inspect_device_tool
+from babbler.lab.scripted import ScriptedLab
+from babbler.lab.topology import load_topology
+from babbler.llm import FakeLLMClient, assert_append_only, response, text, tool_use
+from babbler.netops.change import ChangeManager
+from babbler.netops.tools import build_tools
+from babbler.types import HarnessConfig, LLMResponse, PingResult, ToolResult, Usage
 
 TOPO = load_topology("metro")
 HAIKU = "claude-haiku-5-5"

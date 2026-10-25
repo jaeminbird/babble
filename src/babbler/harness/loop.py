@@ -11,11 +11,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
-from faultline.harness.accounting import Accounting
-from faultline.harness.audit import AuditLog
-from faultline.harness.policy import SafetyPolicy
-from faultline.harness.truncate import truncate
-from faultline.types import (
+from babbler.harness.accounting import Accounting
+from babbler.harness.audit import AuditLog
+from babbler.harness.policy import SafetyPolicy
+from babbler.harness.truncate import truncate
+from babbler.types import (
     Approver,
     Diagnosis,
     Event,

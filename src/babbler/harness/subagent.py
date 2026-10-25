@@ -10,14 +10,14 @@ import dataclasses
 import ipaddress
 from typing import Any
 
-from faultline.harness.accounting import Accounting
-from faultline.harness.audit import AuditLog, TaggedAuditLog
-from faultline.harness.loop import Agent, RunResult
-from faultline.harness.policy import SafetyPolicy
-from faultline.harness.prompts import SUBAGENT_PROMPT
-from faultline.lab.topology import Topology
-from faultline.netops.commands import validate_show
-from faultline.types import (
+from babbler.harness.accounting import Accounting
+from babbler.harness.audit import AuditLog, TaggedAuditLog
+from babbler.harness.loop import Agent, RunResult
+from babbler.harness.policy import SafetyPolicy
+from babbler.harness.prompts import SUBAGENT_PROMPT
+from babbler.lab.topology import Topology
+from babbler.netops.commands import validate_show
+from babbler.types import (
     Approver,
     Event,
     HarnessConfig,
