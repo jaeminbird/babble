@@ -1,0 +1,109 @@
+"""Safety policy: decides whether a tool call runs, needs approval, or is denied."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Callable, Iterable
+
+from faultline.types import ApprovalMode, Approver, Decision, ToolCall, ToolSpec
+
+
+class SafetyPolicy:
+    """Order of evaluation (first match wins):
+
+    1. tool in deny_tools      -> deny   (applies even when safety is disabled)
+    2. safety disabled         -> allow  (the unsafe baseline)
+    3. tool in allow_tools     -> allow
+    4. spec.mutating           -> ask    (needs an approver)
+    5. otherwise               -> allow  (read-only)
+    """
+
+    def __init__(
+        self,
+        enabled: bool = True,
+        deny_tools: Iterable[str] = (),
+        allow_tools: Iterable[str] = (),
+    ) -> None:
+        self.enabled = enabled
+        self.deny_tools = frozenset(deny_tools)
+        self.allow_tools = frozenset(allow_tools)
+
+    def decide(self, call: ToolCall, spec: ToolSpec) -> tuple[Decision, str]:
+        if call.name in self.deny_tools:
+            return "deny", f"tool {call.name} is denied by policy"
+        if not self.enabled:
+            return "allow", "safety disabled"
+        if call.name in self.allow_tools:
+            return "allow", f"tool {call.name} is pre-approved by policy"
+        if spec.mutating:
+            return "ask", f"mutating tool {call.name} requires approval"
+        return "allow", f"read-only tool {call.name}"
+
+
+# ------------------------------------------------------------------ approvers
+
+DECLINED_NOTE = "The operator declined this change. Do not retry it."
+
+
+class AutoApprover:
+    """Approves every gated call. Used for the unattended bench."""
+
+    def approve(self, call: ToolCall, reason: str) -> tuple[bool, str]:
+        return True, "auto-approved"
+
+
+class AutoDenier:
+    """Declines every gated call."""
+
+    def approve(self, call: ToolCall, reason: str) -> tuple[bool, str]:
+        return False, DECLINED_NOTE
+
+
+class CliApprover:
+    """Asks a human on the terminal. input_fn and output_fn are injectable for tests."""
+
+    def __init__(
+        self,
+        input_fn: Callable[[str], str] = input,
+        output_fn: Callable[[str], object] = print,
+    ) -> None:
+        self.input_fn = input_fn
+        self.output_fn = output_fn
+
+    def approve(self, call: ToolCall, reason: str) -> tuple[bool, str]:
+        self.output_fn(f"Approval required: {reason}")
+        self.output_fn(f"Tool: {call.name}")
+        self.output_fn(json.dumps(call.input, indent=2, sort_keys=True))
+        try:
+            answer = self.input_fn("Approve? [y/N] ")
+        except EOFError:
+            # No terminal input available: fail closed.
+            return False, DECLINED_NOTE
+        if answer.strip().lower() in ("y", "yes"):
+            return True, "approved by operator"
+        return False, DECLINED_NOTE
+
+
+class ScriptedApprover:
+    """Returns pre-set decisions in order. Fails loudly if asked more often than scripted."""
+
+    def __init__(self, decisions: list[bool]) -> None:
+        self._decisions = list(decisions)
+        self.calls: list[tuple[ToolCall, str]] = []
+
+    def approve(self, call: ToolCall, reason: str) -> tuple[bool, str]:
+        self.calls.append((call, reason))
+        if not self._decisions:
+            raise RuntimeError(f"ScriptedApprover has no decision left for {call.name}")
+        approved = self._decisions.pop(0)
+        return (True, "approved by script") if approved else (False, DECLINED_NOTE)
+
+
+def make_approver(mode: ApprovalMode) -> Approver:
+    if mode == "human":
+        return CliApprover()
+    if mode == "auto_approve":
+        return AutoApprover()
+    if mode == "auto_deny":
+        return AutoDenier()
+    raise ValueError(f"unknown approval mode: {mode!r}")
