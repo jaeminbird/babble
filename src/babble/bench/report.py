@@ -1,4 +1,4 @@
-"""Summaries of bench results: per-preset rates, pass^k and pass@k, and markdown tables.
+"""Summaries of bench results: per-preset rates, pass^k and markdown tables.
 
 Input is the JSONL file `run_matrix` writes: one TrialResult dict per line.
 """
@@ -21,12 +21,6 @@ def pass_hat_k(successes: int, trials: int, k: int) -> float:
     """tau-bench pass^k: the chance that all k trials drawn from `trials` succeed, C(c,k)/C(n,k)."""
     _check_pass_arguments(successes, trials, k)
     return comb(successes, k) / comb(trials, k)
-
-
-def pass_at_k(successes: int, trials: int, k: int) -> float:
-    """pass@k: the chance that at least one of k trials drawn from `trials` succeeds."""
-    _check_pass_arguments(successes, trials, k)
-    return 1 - comb(trials - successes, k) / comb(trials, k)
 
 
 def _check_pass_arguments(successes: int, trials: int, k: int) -> None:

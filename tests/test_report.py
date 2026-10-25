@@ -4,7 +4,6 @@ import pytest
 
 from babble.bench.report import (
     load_results,
-    pass_at_k,
     pass_hat_k,
     render_markdown_table,
     solved_counts_by_scenario_table,
@@ -40,22 +39,13 @@ def test_pass_hat_k_is_zero_when_fewer_than_k_trials_succeed_and_one_when_all_do
     assert pass_hat_k(successes=4, trials=4, k=4) == 1.0
 
 
-def test_pass_at_k_is_the_chance_at_least_one_of_k_trials_succeeds():
-    # 1 - C(3,2) / C(4,2) = 1 - 3 / 6
-    assert pass_at_k(successes=1, trials=4, k=2) == pytest.approx(0.5)
-    assert pass_at_k(successes=0, trials=3, k=2) == 0.0
-    assert pass_at_k(successes=3, trials=3, k=3) == 1.0
-
-
 @pytest.mark.parametrize(
     ("successes", "trials", "k"),
     [(4, 3, 1), (-1, 3, 1), (1, 3, 0), (1, 3, 4)],
 )
-def test_pass_k_rejects_impossible_arguments(successes, trials, k):
+def test_pass_hat_k_rejects_impossible_arguments(successes, trials, k):
     with pytest.raises(ValueError):
         pass_hat_k(successes, trials, k)
-    with pytest.raises(ValueError):
-        pass_at_k(successes, trials, k)
 
 
 # ------------------------------------------------------------- loading
