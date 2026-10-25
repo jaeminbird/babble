@@ -107,3 +107,29 @@ def response(
         usage=usage or Usage(),
         model=model,
     )
+
+
+# ------------------------------------------------------------------ invariants
+
+
+def assert_append_only(calls: list[dict[str, Any]]) -> None:
+    """Check that history is append-only across recorded calls.
+
+    Calls are grouped into conversations by their first message. For each call, the most
+    recent earlier call in the same conversation must have messages that are an exact prefix
+    of this call's messages. Raises AssertionError naming the first differing index.
+    """
+    for i, call in enumerate(calls):
+        messages = call["messages"]
+        if not messages:
+            continue
+        for j in range(i - 1, -1, -1):
+            earlier = calls[j]["messages"]
+            if earlier and earlier[0] == messages[0]:
+                for k, old in enumerate(earlier):
+                    if k >= len(messages) or messages[k] != old:
+                        raise AssertionError(
+                            f"call {i} is not an append-only extension of call {j}: "
+                            f"first differing message index is {k}"
+                        )
+                break

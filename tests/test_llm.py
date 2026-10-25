@@ -1,6 +1,14 @@
 import pytest
 
-from faultline.llm import PRICING, FakeLLMClient, cost, response, text, tool_use
+from faultline.llm import (
+    PRICING,
+    FakeLLMClient,
+    assert_append_only,
+    cost,
+    response,
+    text,
+    tool_use,
+)
 from faultline.types import Usage
 
 
@@ -132,3 +140,63 @@ def test_response_helper_overrides():
     assert resp.stop_reason == "max_tokens"
     assert resp.usage is usage
     assert resp.model == "claude-haiku-5-5"
+
+
+# ------------------------------------------------------------------ assert_append_only
+
+USER = {"role": "user", "content": "diagnose r1"}
+ASSISTANT = {"role": "assistant", "content": [{"type": "text", "text": "checking"}]}
+RESULT = {
+    "role": "user",
+    "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}],
+}
+
+
+def test_append_only_passes_for_growing_conversation():
+    calls = [
+        {"messages": [USER]},
+        {"messages": [USER, ASSISTANT, RESULT]},
+        {"messages": [USER, ASSISTANT, RESULT, ASSISTANT]},
+    ]
+    assert_append_only(calls)
+
+
+def test_append_only_passes_with_no_calls():
+    assert_append_only([])
+
+
+def test_append_only_ignores_interleaved_conversations():
+    other = {"role": "user", "content": "a subagent question"}
+    calls = [
+        {"messages": [USER]},
+        {"messages": [other]},
+        {"messages": [USER, ASSISTANT]},
+        {"messages": [other, ASSISTANT]},
+    ]
+    assert_append_only(calls)
+
+
+def test_append_only_fails_when_an_earlier_message_is_edited():
+    edited = {"role": "assistant", "content": [{"type": "text", "text": "rewritten"}]}
+    calls = [
+        {"messages": [USER, ASSISTANT]},
+        {"messages": [USER, edited, RESULT]},
+    ]
+    with pytest.raises(AssertionError, match="first differing message index is 1"):
+        assert_append_only(calls)
+
+
+def test_append_only_fails_when_history_is_truncated():
+    calls = [
+        {"messages": [USER, ASSISTANT, RESULT]},
+        {"messages": [USER, ASSISTANT]},
+    ]
+    with pytest.raises(AssertionError, match="first differing message index is 2"):
+        assert_append_only(calls)
+
+
+def test_append_only_accepts_fake_client_recordings():
+    client = FakeLLMClient([response(text("a")), response(text("b"))])
+    _call(client, messages=[USER])
+    _call(client, messages=[USER, ASSISTANT, RESULT])
+    assert_append_only(client.calls)
