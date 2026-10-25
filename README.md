@@ -2,7 +2,7 @@
 
 # babble
 
-**Pied babblers keep a sentinel singing while the flock forages. As long as the babble goes on, nobody has to look up. babble keeps that watch over your network: it finds the fault, fixes it with your OK, and narrates every move.**
+**Like the babbler bird on sentinel duty, babble watches your network, finds the fault, and fixes it with your OK.**
 
 Claude investigates. You approve. The network proves the fix, or babble takes it back.<br>
 **12/12** injected network faults fixed and verified on live routers.
