@@ -70,6 +70,9 @@ class RunResult:
     denials: int
     # Input of the finish call when the finish tool is not submit_diagnosis. None otherwise.
     finish_tool_input: dict[str, Any] | None = None
+    # "{ExceptionType}: {message}" of the failure that ended the run. Set only when stop_reason
+    # is error.
+    error_message: str | None = None
 
 
 class Agent:
@@ -136,8 +139,13 @@ class _Run:
     def execute(self) -> RunResult:
         harness_config = self.config
         for turn in range(1, harness_config.max_turns + 1):
+            # A failure in either step ends the run with stop_reason error. It must not crash
+            # the caller.
             try:
                 self._maybe_compact(turn)
+            except Exception as exc:  # noqa: BLE001
+                return self._end_run_with_error("compaction", turn, exc)
+            try:
                 response = self.agent.llm.complete(
                     model=harness_config.model,
                     system=self.system_blocks,
@@ -147,19 +155,8 @@ class _Run:
                     effort=harness_config.effort,
                     cache=harness_config.prompt_caching,
                 )
-            # An API failure ends the run with stop_reason error. It must not crash the caller.
             except Exception as exc:  # noqa: BLE001
-                self.audit.record(
-                    Event(
-                        "error",
-                        {
-                            "where": "llm.complete",
-                            "turn": turn,
-                            "message": f"{type(exc).__name__}: {exc}",
-                        },
-                    )
-                )
-                return self._stop("error")
+                return self._end_run_with_error("llm.complete", turn, exc)
 
             self.turns = turn
             self.accounting.add(response.usage, response.model)
@@ -218,7 +215,14 @@ class _Run:
             )
         )
 
-    def _stop(self, reason: str) -> RunResult:
+    def _end_run_with_error(self, where: str, turn: int, exc: Exception) -> RunResult:
+        error_message = f"{type(exc).__name__}: {exc}"
+        self.audit.record(
+            Event("error", {"where": where, "turn": turn, "message": error_message})
+        )
+        return self._stop("error", error_message=error_message)
+
+    def _stop(self, reason: str, error_message: str | None = None) -> RunResult:
         self.audit.record(Event("stop", {"reason": reason, "turns": self.turns}))
         return RunResult(
             diagnosis=self.diagnosis,
@@ -231,6 +235,7 @@ class _Run:
             approvals=self.approvals,
             denials=self.denials,
             finish_tool_input=self.finish_tool_input,
+            error_message=error_message,
         )
 
     # ----------------------------------------------------------------- tools
