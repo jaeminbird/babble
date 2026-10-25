@@ -1,6 +1,6 @@
 import pytest
 
-from faultline.llm import PRICING, cost
+from faultline.llm import PRICING, FakeLLMClient, cost, response, text, tool_use
 from faultline.types import Usage
 
 
@@ -52,3 +52,83 @@ def test_cost_combines_all_token_kinds():
 def test_cost_unknown_model_raises_key_error():
     with pytest.raises(KeyError):
         cost(Usage(input_tokens=1), "gpt-unknown")
+
+
+# ------------------------------------------------------------------ FakeLLMClient
+
+
+def _call(client: FakeLLMClient, messages=None, **overrides):
+    kwargs = {
+        "model": "claude-opus-5-5",
+        "system": [{"type": "text", "text": "sys"}],
+        "messages": messages if messages is not None else [{"role": "user", "content": "hi"}],
+        "tools": [],
+        "max_tokens": 100,
+    }
+    kwargs.update(overrides)
+    return client.complete(**kwargs)
+
+
+def test_fake_returns_responses_in_order():
+    first = response(text("one"))
+    second = response(text("two"))
+    client = FakeLLMClient([first, second])
+    assert _call(client) is first
+    assert _call(client) is second
+
+
+def test_fake_raises_when_exhausted():
+    client = FakeLLMClient([response(text("only"))])
+    _call(client)
+    with pytest.raises(AssertionError, match="FakeLLMClient ran out of responses"):
+        _call(client)
+
+
+def test_fake_records_kwargs_deep_copied():
+    client = FakeLLMClient([response(text("ok"))])
+    messages = [{"role": "user", "content": "hi"}]
+    _call(client, messages=messages, effort="low", cache=False)
+    messages[0]["content"] = "mutated after the call"
+    assert len(client.calls) == 1
+    recorded = client.calls[0]
+    assert recorded["messages"] == [{"role": "user", "content": "hi"}]
+    assert recorded["effort"] == "low"
+    assert recorded["cache"] is False
+    assert recorded["model"] == "claude-opus-5-5"
+    assert recorded["max_tokens"] == 100
+
+
+def test_tool_use_helper_builds_block_and_generates_ids():
+    block = tool_use("run_show", {"device": "r1"})
+    assert block["type"] == "tool_use"
+    assert block["name"] == "run_show"
+    assert block["input"] == {"device": "r1"}
+    assert block["id"]
+    assert tool_use("x", {}, id="toolu_fixed")["id"] == "toolu_fixed"
+    assert tool_use("x", {})["id"] != tool_use("x", {})["id"]
+
+
+def test_text_helper_builds_block():
+    assert text("hello") == {"type": "text", "text": "hello"}
+
+
+def test_response_helper_defaults():
+    tool_resp = response(text("let me check"), tool_use("run_show", {}))
+    assert tool_resp.stop_reason == "tool_use"
+    assert tool_resp.model == "claude-opus-5-5"
+    assert tool_resp.usage == Usage()
+    assert [c.name for c in tool_resp.tool_calls] == ["run_show"]
+
+    done = response(text("all good"))
+    assert done.stop_reason == "end_turn"
+    assert done.text == "all good"
+
+
+def test_response_helper_overrides():
+    usage = Usage(input_tokens=5, output_tokens=7)
+    resp = response(
+        text("x"), stop_reason="max_tokens", usage=usage, model="claude-haiku-5-5"
+    )
+    assert resp.stop_reason == "max_tokens"
+    assert resp.usage is usage
+    assert resp.model == "claude-haiku-5-5"
