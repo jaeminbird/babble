@@ -47,32 +47,6 @@ def test_mutating_tool_asks_by_default():
     assert "requires approval" in reason
 
 
-def test_deny_tools_denies_read_only_tool():
-    policy = SafetyPolicy(deny_tools={"show_device"})
-    decision, reason = policy.decide(_call("show_device"), READ)
-    assert decision == "deny"
-    assert "denied" in reason
-
-
-def test_deny_tools_denies_mutating_tool():
-    policy = SafetyPolicy(deny_tools={"configure_device"})
-    decision, _ = policy.decide(_call("configure_device"), WRITE)
-    assert decision == "deny"
-
-
-def test_deny_wins_over_allow_tools():
-    policy = SafetyPolicy(deny_tools={"configure_device"}, allow_tools={"configure_device"})
-    decision, _ = policy.decide(_call("configure_device"), WRITE)
-    assert decision == "deny"
-
-
-def test_deny_wins_when_safety_disabled():
-    # The unsafe baseline still honours an explicit deny list.
-    policy = SafetyPolicy(enabled=False, deny_tools={"configure_device"})
-    decision, _ = policy.decide(_call("configure_device"), WRITE)
-    assert decision == "deny"
-
-
 def test_safety_disabled_allows_mutating_tool():
     policy = SafetyPolicy(enabled=False)
     decision, reason = policy.decide(_call("configure_device"), WRITE)
@@ -83,32 +57,6 @@ def test_safety_disabled_allows_mutating_tool():
 def test_safety_disabled_allows_read_only_tool():
     decision, _ = SafetyPolicy(enabled=False).decide(_call("show_device"), READ)
     assert decision == "allow"
-
-
-def test_allow_tools_skips_approval_for_mutating_tool():
-    policy = SafetyPolicy(allow_tools={"configure_device"})
-    decision, reason = policy.decide(_call("configure_device"), WRITE)
-    assert decision == "allow"
-    assert "pre-approved" in reason
-
-
-def test_allow_tools_does_not_affect_other_tools():
-    policy = SafetyPolicy(allow_tools={"show_device"})
-    decision, _ = policy.decide(_call("configure_device"), WRITE)
-    assert decision == "ask"
-
-
-def test_decision_is_keyed_on_call_name():
-    # A call whose name is not in deny_tools is not denied, even if the spec is.
-    policy = SafetyPolicy(deny_tools={"other_tool"})
-    decision, _ = policy.decide(_call("configure_device"), WRITE)
-    assert decision == "ask"
-
-
-def test_accepts_any_iterable_for_tool_sets():
-    policy = SafetyPolicy(deny_tools=["configure_device"], allow_tools=iter(["show_device"]))
-    assert policy.decide(_call("configure_device"), WRITE)[0] == "deny"
-    assert policy.decide(_call("show_device"), READ)[0] == "allow"
 
 
 # ---------------------------------------------------------------- approvers

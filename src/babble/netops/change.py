@@ -22,17 +22,17 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from babble.netops.checks import evaluate_all, evaluate_all_after_convergence
-from babble.netops.commands import blocked_config
+from babble.netops.commands import find_blocked_config_reasons
 from babble.types import AuditSink, Check, Event, HarnessConfig, LabBackend, LabError, ToolResult
 
 # Result texts are read by the model, so long lists are cut to this many entries.
-LIST_LIMIT = 8
+MAX_LISTED_CHECKS = 8
 
 
-def summarize(items: Sequence[str]) -> str:
-    """Join up to LIST_LIMIT items, then say how many were left out."""
-    shown_items = ", ".join(items[:LIST_LIMIT])
-    items_left_out = len(items) - LIST_LIMIT
+def _summarize_check_list(items: Sequence[str]) -> str:
+    """Join up to MAX_LISTED_CHECKS items, then say how many were left out."""
+    shown_items = ", ".join(items[:MAX_LISTED_CHECKS])
+    items_left_out = len(items) - MAX_LISTED_CHECKS
     return f"{shown_items}, and {items_left_out} more" if items_left_out > 0 else shown_items
 
 
@@ -64,8 +64,8 @@ class ChangeManager:
         # One dict per applied change: {device, lines, rationale, rolled_back, rollback_failed,
         # regressions}. A failed automatic rollback leaves the change on the device, so it is
         # recorded with rolled_back False and rollback_failed True.
-        self.changes: list[dict[str, Any]] = []
-        # Per device, (snapshot taken before a kept change, index into self.changes), oldest first.
+        self.change_records: list[dict[str, Any]] = []
+        # Per device, (snapshot taken before a kept change, index into self.change_records), oldest first.
         self._undo_stacks_by_device: dict[str, list[tuple[str, int]]] = {}
 
     # ----------------------------------------------------------------- apply
@@ -75,7 +75,7 @@ class ChangeManager:
         if not lines:
             return ToolResult("Change not applied: no config lines were given.", is_error=True)
 
-        reasons = blocked_config(lines)
+        reasons = find_blocked_config_reasons(lines)
         if reasons:
             self._reject(device, reasons)
             return ToolResult(
@@ -127,8 +127,8 @@ class ChangeManager:
 
         if checks_regressed_by_change and self.config.auto_rollback:
             restore_error = self._restore(device, snapshot)
-            index_of_recorded_change = len(self.changes)
-            self.changes.append(
+            index_of_recorded_change = len(self.change_records)
+            self.change_records.append(
                 _change_record(
                     device,
                     lines,
@@ -144,7 +144,7 @@ class ChangeManager:
                 )
                 self._record_rollback_failed(device, regressed_check_descriptions, restore_error)
                 return ToolResult(
-                    f"Change on {device} broke {summarize(regressed_check_descriptions)}, and the "
+                    f"Change on {device} broke {_summarize_check_list(regressed_check_descriptions)}, and the "
                     f"automatic rollback failed: {restore_error}. Check the device before doing "
                     "anything else.",
                     is_error=True,
@@ -152,13 +152,13 @@ class ChangeManager:
             self._record_rollback(device, "service checks regressed", regressed_check_descriptions)
             return ToolResult(
                 f"Change on {device} was rolled back automatically because it broke: "
-                f"{summarize(regressed_check_descriptions)}. "
+                f"{_summarize_check_list(regressed_check_descriptions)}. "
                 "The device is back to its previous config.",
                 is_error=True,
             )
 
-        index_of_recorded_change = len(self.changes)
-        self.changes.append(
+        index_of_recorded_change = len(self.change_records)
+        self.change_records.append(
             _change_record(
                 device,
                 lines,
@@ -222,13 +222,13 @@ class ChangeManager:
         if checks_regressed_by_change:
             regressed_names = [check.describe() for check in checks_regressed_by_change]
             result_text += (
-                f" Regressed, kept because auto_rollback is off: {summarize(regressed_names)}."
+                f" Regressed, kept because auto_rollback is off: {_summarize_check_list(regressed_names)}."
             )
         still_failing = [
             check.describe() for check in self.checks if not checks_passing_after_change.get(check)
         ]
         if still_failing:
-            result_text += f" Still failing: {summarize(still_failing)}."
+            result_text += f" Still failing: {_summarize_check_list(still_failing)}."
         return result_text
 
     # -------------------------------------------------------------- rollback
@@ -244,7 +244,7 @@ class ChangeManager:
         except LabError as lab_error:
             return ToolResult(f"Rollback on {device} failed: {lab_error}", is_error=True)
         undo_stack.pop()
-        self.changes[index_of_change]["rolled_back"] = True
+        self.change_records[index_of_change]["rolled_back"] = True
         self._record_rollback(device, "rolled back on request", [])
         return ToolResult(
             f"Rolled back the last change on {device}. The device is back to its previous config."

@@ -148,6 +148,7 @@ def _tool_result_text(content: Any) -> str:
 
 # ---------------------------------------------------------------- compactor
 
+SUMMARY_MAX_TOKENS = 4000
 SUMMARY_PROMPT = """You are summarizing the working state of a network fault investigation so that
 the investigation can continue in a fresh conversation. The transcript you receive is the full
 history so far: the alert, the agent's messages, its tool calls and their results.
@@ -180,14 +181,12 @@ class SummaryCompactor:
         threshold: int,
         notes: NotesStore | None = None,
         accounting: Accounting | None = None,
-        max_summary_tokens: int = 4000,
     ) -> None:
         self.llm = llm
         self.model = model
         self.threshold = threshold
         self.notes = notes
         self.accounting = accounting
-        self.max_summary_tokens = max_summary_tokens
 
     def should_compact(self, last_usage: Usage) -> bool:
         return last_usage.total_input >= self.threshold
@@ -198,7 +197,7 @@ class SummaryCompactor:
             system=[{"type": "text", "text": SUMMARY_PROMPT}],
             messages=[{"role": "user", "content": render_transcript(messages)}],
             tools=[],
-            max_tokens=self.max_summary_tokens,
+            max_tokens=SUMMARY_MAX_TOKENS,
             effort=COMPACT_EFFORT,
             cache=False,
         )

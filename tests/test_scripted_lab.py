@@ -67,7 +67,7 @@ def test_blank_config_lines_are_dropped():
     lab = make_lab()
     lab.configure("r1", ["", "   "])
     assert lab.applied_lines("r1") == []
-    assert lab.config_calls == [("r1", [])]
+    assert lab.configure_calls == [("r1", [])]
 
 
 def test_lab_without_fix_is_never_fixed():
@@ -88,7 +88,7 @@ def test_configure_records_normalized_calls_in_order():
     lab = make_lab()
     lab.configure("r2", ["  router   bgp 65001 "])
     lab.configure("r1", ["ip route 172.16.0.0/24 10.0.13.2"])
-    assert lab.config_calls == [
+    assert lab.configure_calls == [
         ("r2", ["router bgp 65001"]),
         ("r1", ["ip route 172.16.0.0/24 10.0.13.2"]),
     ]
@@ -136,7 +136,7 @@ def test_configure_on_host_raises():
     lab = make_lab()
     with pytest.raises(LabError, match="not a router"):
         lab.configure("ha", ["x"])
-    assert lab.config_calls == []
+    assert lab.configure_calls == []
 
 
 def test_configure_unknown_device_raises():
@@ -207,10 +207,10 @@ def test_ping_uses_pings_table_and_defaults_to_no_reply():
 def test_ping_switches_to_fixed_table_when_fixed():
     lab = make_lab()
     lab.configure("r1", ["ip route 172.16.0.0/24 10.0.13.2"])
-    result = lab.ping("ha", "172.16.0.10", count=5)
+    result = lab.ping("ha", "172.16.0.10")
     assert result.ok is True
-    assert (result.sent, result.received) == (5, 5)
-    assert "5 packets transmitted" in result.output
+    assert (result.sent, result.received) == (3, 3)
+    assert "3 packets transmitted" in result.output
 
 
 def test_ping_from_router_uses_pings_table():
@@ -228,7 +228,7 @@ def test_ping_unknown_device_raises():
 def test_host_exec_is_recorded_and_changes_nothing():
     lab = make_lab()
     assert lab.host_exec("ha", ["ip", "link", "set", "eth1", "down"]) == ""
-    assert lab.host_calls == [("ha", ["ip", "link", "set", "eth1", "down"])]
+    assert lab.host_exec_calls == [("ha", ["ip", "link", "set", "eth1", "down"])]
     assert lab.state == "broken"
 
 

@@ -78,13 +78,13 @@ class FakeLLMClient:
 _fake_tool_use_numbers = itertools.count(1)
 
 
-def tool_use(name: str, input: dict[str, Any], id: str | None = None) -> dict[str, Any]:
+def tool_use(name: str, tool_input: dict[str, Any], tool_use_id: str | None = None) -> dict[str, Any]:
     """A tool_use content block for a scripted response."""
     return {
         "type": "tool_use",
-        "id": id or f"toolu_fake{next(_fake_tool_use_numbers):04d}",
+        "id": tool_use_id or f"toolu_fake{next(_fake_tool_use_numbers):04d}",
         "name": name,
-        "input": input,
+        "input": tool_input,
     }
 
 
@@ -121,9 +121,8 @@ EPHEMERAL = {"type": "ephemeral"}
 class AnthropicClient:
     """LLMClient backed by the official anthropic SDK. Streams each request."""
 
-    def __init__(self, client: anthropic.Anthropic | None = None, fallbacks: bool = True):
+    def __init__(self, client: anthropic.Anthropic | None = None):
         self._client = client if client is not None else anthropic.Anthropic()
-        self.fallbacks = fallbacks
 
     def complete(
         self,
@@ -145,7 +144,7 @@ class AnthropicClient:
             effort=effort,
             cache=cache,
         )
-        if self.fallbacks and model in FALLBACK_MODELS:
+        if model in FALLBACK_MODELS:
             endpoint = self._client.beta.messages
             request_kwargs["betas"] = [FALLBACK_BETA]
             request_kwargs["fallbacks"] = "default"

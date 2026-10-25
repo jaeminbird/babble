@@ -53,8 +53,8 @@ class AuditLog:
             self._previous_sha256 = chained_record["sha256"]
             self.events.append(event)
 
-    def of_type(self, type: str) -> list[Event]:
-        return [event for event in self.events if event.type == type]
+    def of_type(self, event_type: str) -> list[Event]:
+        return [event for event in self.events if event.type == event_type]
 
 
 class TaggedAuditLog:

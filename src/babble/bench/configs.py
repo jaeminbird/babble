@@ -18,7 +18,7 @@ PRESETS: dict[str, HarnessConfig] = {
 }
 
 
-def preset(name: str, model: str | None = None) -> HarnessConfig:
+def harness_config_for_preset(name: str, model: str | None = None) -> HarnessConfig:
     """A fresh copy of the named preset, with its model replaced when `model` is given."""
     if name not in PRESETS:
         raise ValueError(f"unknown preset {name!r}; valid presets: {', '.join(PRESETS)}")

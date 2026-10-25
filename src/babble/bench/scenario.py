@@ -138,10 +138,10 @@ def load_scenario(path: Path | str) -> Scenario:
     )
 
 
-def load_all(dir: Path | str | None = None) -> list[Scenario]:
-    """Every *.yaml scenario in `dir` (default: the bundled scenarios), sorted by id. Raises if the
+def load_all(scenarios_directory: Path | str | None = None) -> list[Scenario]:
+    """Every *.yaml scenario in `scenarios_directory` (default: the bundled scenarios), sorted by id. Raises if the
     directory is missing. Ids are unique because each must match its file name."""
-    scenarios_dir = Path(dir) if dir is not None else SCENARIOS_DIR
+    scenarios_dir = Path(scenarios_directory) if scenarios_directory is not None else SCENARIOS_DIR
     if not scenarios_dir.is_dir():
         raise ValueError(f"scenarios directory does not exist: {scenarios_dir}")
     scenarios = [load_scenario(p) for p in sorted(scenarios_dir.glob("*.yaml"))]
@@ -215,7 +215,7 @@ def _optional_string_list(data: dict[str, Any], key: str, build_error: Failer) -
 # --------------------------------------------------------------------- applying
 
 
-def inject(scenario: Scenario, lab: LabBackend) -> None:
+def inject_fault(scenario: Scenario, lab: LabBackend) -> None:
     """Apply the fault's steps in order: config lines through vtysh, host commands raw."""
     for step in scenario.inject:
         if step.config is not None:
@@ -225,7 +225,7 @@ def inject(scenario: Scenario, lab: LabBackend) -> None:
             lab.host_exec(step.device, list(step.host))
 
 
-def revert_host(scenario: Scenario, lab: LabBackend) -> None:
+def revert_host_side_fault(scenario: Scenario, lab: LabBackend) -> None:
     """Undo host-level steps that declare a revert, last step first. Config faults are undone
     by the baseline restore, not here."""
     for step in reversed(scenario.inject):

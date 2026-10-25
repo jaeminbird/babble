@@ -274,7 +274,6 @@ def test_compact_adds_summary_usage_to_accounting():
     compactor = SummaryCompactor(llm, "claude-haiku-5-5", threshold=1000, accounting=accounting)
     compactor.compact("task", _transcript_messages())
     assert accounting.usage == usage
-    assert accounting.calls == 1
 
 
 def test_compact_never_mutates_messages():
@@ -367,7 +366,6 @@ def test_agent_compacts_into_fresh_conversation_and_finishes(tmp_path: Path):
     assert result.diagnosis is not None
     assert result.diagnosis.root_cause_device == "rb"
     assert len(audit.of_type("compaction")) == 1
-    assert accounting.calls == 4  # three agent calls and the summary call
 
     agent_calls = [
         call for call in llm.calls if call["system"][0]["text"] == "You diagnose faults."

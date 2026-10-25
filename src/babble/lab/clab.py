@@ -13,7 +13,7 @@ from pathlib import Path
 
 from babble.lab.topology import Topology
 from babble.polling import poll_until
-from babble.types import Check, LabBackend, LabError, PingResult
+from babble.types import PING_PACKET_COUNT, Check, LabBackend, LabError, PingResult
 
 # Decides whether one health check passes on a running lab. Matches the shape of
 # babble.netops.checks.evaluate.
@@ -39,11 +39,11 @@ class CommandRunner:
         return cls(["wsl", "-d", distro, "-u", "root", "--"])
 
     def run(
-        self, argv: list[str], input: str | None = None, timeout: float = 60
+        self, argv: list[str], stdin_text: str | None = None, timeout: float = 60
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [*self.prefix, *argv],
-            input=input,
+            input=stdin_text,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -83,30 +83,30 @@ class ClabLab:
         return f"clab-{self.topology.name}-{device}"
 
     def _run_command(
-        self, argv: list[str], input: str | None = None, timeout: float = 60
+        self, argv: list[str], stdin_text: str | None = None, timeout: float = 60
     ) -> subprocess.CompletedProcess[str]:
         try:
-            return self.runner.run(argv, input=input, timeout=timeout)
+            return self.runner.run(argv, stdin_text=stdin_text, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise LabError(f"could not run {argv[0]}: {exc}") from exc
 
     def _run_in_container(
-        self, device: str, argv: list[str], input: str | None = None, timeout: float = 60
+        self, device: str, argv: list[str], stdin_text: str | None = None, timeout: float = 60
     ) -> subprocess.CompletedProcess[str]:
         """Run argv inside the device container with docker exec. `-i` is added when stdin is
         given. A non-zero exit is returned, not raised."""
-        interactive_flags = ["-i"] if input is not None else []
+        interactive_flags = ["-i"] if stdin_text is not None else []
         return self._run_command(
             ["docker", "exec", *interactive_flags, self._container_name(device), *argv],
-            input=input,
+            stdin_text=stdin_text,
             timeout=timeout,
         )
 
     def _exec_in_container(
-        self, device: str, argv: list[str], input: str | None = None
+        self, device: str, argv: list[str], stdin_text: str | None = None
     ) -> subprocess.CompletedProcess[str]:
         """Like _run_in_container, but a non-zero exit raises LabError."""
-        completed_process = self._run_in_container(device, argv, input=input)
+        completed_process = self._run_in_container(device, argv, stdin_text=stdin_text)
         if completed_process.returncode != 0:
             raise LabError(_error_text(completed_process, f"exit {completed_process.returncode}"))
         return completed_process
@@ -146,13 +146,15 @@ class ClabLab:
 
     def restore(self, device: str, config: str) -> None:
         # tee, not a shell redirect: no quoting to survive through a wsl.exe prefix.
-        self._exec_in_container(device, ["tee", RESTORE_FILE], input=config)
+        self._exec_in_container(device, ["tee", RESTORE_FILE], stdin_text=config)
         self._exec_in_container(device, ["/usr/lib/frr/frr-reload.py", "--reload", RESTORE_FILE])
 
-    def ping(self, device: str, target: str, count: int = 3) -> PingResult:
+    def ping(self, device: str, target: str) -> PingResult:
         # Loss is not an error: ping exits non-zero when packets are lost.
-        argv = ["ping", "-c", str(count), "-W", "1", "-i", "0.2", target]
-        completed_process = self._run_in_container(device, argv, timeout=count * 2 + 10)
+        argv = ["ping", "-c", str(PING_PACKET_COUNT), "-W", "1", "-i", "0.2", target]
+        completed_process = self._run_in_container(
+            device, argv, timeout=PING_PACKET_COUNT * 2 + 10
+        )
         output = completed_process.stdout + completed_process.stderr
         statistics_match = _PING_STATISTICS.search(output)
         if statistics_match is None:

@@ -28,8 +28,8 @@ class HealthyLab(ScriptedLab):
     def __init__(self) -> None:
         super().__init__(devices=list(TOPOLOGY.devices), responses={}, hosts=set(TOPOLOGY.hosts()))
 
-    def ping(self, device: str, target: str, count: int = 3) -> PingResult:
-        return PingResult(sent=count, received=count, output="")
+    def ping(self, device: str, target: str) -> PingResult:
+        return PingResult(sent=3, received=3, output="")
 
     def show(self, device: str, command: str) -> str:
         # "show bgp neighbors <peer> json"
@@ -253,7 +253,7 @@ def test_run_rejects_an_unknown_preset_before_touching_the_lab(
 ) -> None:
     assert cli.main(["run", NO_FAULT_SCENARIO, "--preset", "zzz"]) == 2
 
-    assert "unknown preset(s): zzz" in capsys.readouterr().err
+    assert "unknown harness_config_for_preset(s): zzz" in capsys.readouterr().err
 
 
 def test_bench_rejects_an_unknown_scenario_or_preset_before_touching_the_lab(
@@ -264,7 +264,7 @@ def test_bench_rejects_an_unknown_scenario_or_preset_before_touching_the_lab(
 
     err = capsys.readouterr().err
     assert "unknown scenario(s): nope" in err
-    assert "unknown preset(s): zzz" in err
+    assert "unknown harness_config_for_preset(s): zzz" in err
 
 
 # ---------------------------------------------------------------------- lab

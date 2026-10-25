@@ -4,7 +4,7 @@ import json
 import pytest
 
 from babble.bench import runner as runner_module
-from babble.bench.configs import preset
+from babble.bench.configs import harness_config_for_preset
 from babble.bench.runner import (
     TrialResult,
     assemble_agent,
@@ -96,12 +96,12 @@ class FaultLab(ScriptedLab):
             raise LabError(f"unknown host action {action!r}")
         return ""
 
-    def ping(self, device, target, count=3):
-        received = count if self._reachable(device, target) else 0
+    def ping(self, device, target):
+        received = 3 if self._reachable(device, target) else 0
         return PingResult(
-            sent=count,
+            sent=3,
             received=received,
-            output=f"{count} packets transmitted, {received} received",
+            output=f"3 packets transmitted, {received} received",
         )
 
     def _reachable(self, device, target):
@@ -175,7 +175,7 @@ def solving_playbook():
 def harness(preset_name):
     """A preset with the subagent tool off. That tool lives in its own module, which these
     offline tests do not need, so every test config goes through here."""
-    return dataclasses.replace(preset(preset_name), subagents=False)
+    return dataclasses.replace(harness_config_for_preset(preset_name), subagents=False)
 
 
 def trial(

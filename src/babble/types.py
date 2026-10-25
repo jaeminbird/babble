@@ -123,7 +123,7 @@ def string_property(description: str) -> dict[str, Any]:
 
 # ------------------------------------------------------------------------ safety
 
-Decision = Literal["allow", "deny", "ask"]
+Decision = Literal["allow", "ask"]
 
 
 class Approver(Protocol):
@@ -137,6 +137,10 @@ class Approver(Protocol):
 
 class LabError(Exception):
     """A lab operation failed (device unknown, command rejected, container down)."""
+
+
+# Echo requests sent by each ping.
+PING_PACKET_COUNT = 3
 
 
 @dataclass
@@ -171,7 +175,7 @@ class LabBackend(Protocol):
         """Replace the running config with a snapshot taken earlier."""
         ...
 
-    def ping(self, device: str, target: str, count: int = 3) -> PingResult: ...
+    def ping(self, device: str, target: str) -> PingResult: ...
 
     def host_exec(self, device: str, argv: list[str]) -> str:
         """Run a raw command in the device container. Bench-only (fault injection), never an agent tool."""
@@ -205,7 +209,7 @@ class Check:
 
 @dataclass
 class Event:
-    # llm_call | tool_call | tool_result | approval | denied | rollback | verify |
+    # llm_call | tool_call | tool_result | approval | rollback | verify |
     # compaction | subagent | diagnosis | error | stop
     type: str
     data: dict[str, Any] = field(default_factory=dict)

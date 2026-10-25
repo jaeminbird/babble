@@ -117,7 +117,7 @@ def test_tool_use_helper_builds_block_and_generates_ids():
     assert block["name"] == "run_show"
     assert block["input"] == {"device": "r1"}
     assert block["id"]
-    assert tool_use("x", {}, id="toolu_fixed")["id"] == "toolu_fixed"
+    assert tool_use("x", {}, tool_use_id="toolu_fixed")["id"] == "toolu_fixed"
     assert tool_use("x", {})["id"] != tool_use("x", {})["id"]
 
 
@@ -266,8 +266,8 @@ def _final(
     )
 
 
-def _complete(stub, model="claude-haiku-5-5", fallbacks=True, **overrides):
-    client = AnthropicClient(stub, fallbacks=fallbacks)
+def _complete(stub, model="claude-haiku-5-5", **overrides):
+    client = AnthropicClient(stub)
     kwargs = {
         "model": model,
         "system": SYSTEM,
@@ -328,14 +328,10 @@ def test_opus_and_sonnet_use_beta_stream_with_server_fallbacks(model):
     assert kwargs["model"] == model
 
 
-@pytest.mark.parametrize(
-    ("model", "fallbacks"),
-    [("claude-haiku-5-5", True), ("claude-opus-5-5", False)],
-)
-def test_plain_stream_when_model_has_no_fallback_or_fallbacks_disabled(model, fallbacks):
+def test_plain_stream_when_model_has_no_server_fallbacks():
     stub = _StubAnthropic(_final(TextBlock(type="text", text="ok", citations=None)))
 
-    _complete(stub, model=model, fallbacks=fallbacks)
+    _complete(stub, model="claude-haiku-5-5")
 
     assert stub.beta.messages.kwargs is None
     assert "fallbacks" not in stub.messages.kwargs

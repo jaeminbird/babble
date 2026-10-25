@@ -1,6 +1,6 @@
 import pytest
 
-from babble.bench.configs import PRESETS, preset
+from babble.bench.configs import PRESETS, harness_config_for_preset
 from babble.types import HarnessConfig
 
 
@@ -40,21 +40,21 @@ def test_each_ablation_changes_exactly_its_own_fields(name, changed):
 
 
 def test_preset_returns_a_copy_so_callers_cannot_change_the_shared_preset():
-    config = preset("full")
+    config = harness_config_for_preset("full")
     config.max_turns = 1
     assert PRESETS["full"].max_turns == HarnessConfig().max_turns
-    assert preset("full") is not PRESETS["full"]
+    assert harness_config_for_preset("full") is not PRESETS["full"]
 
 
 def test_preset_overrides_the_model_only_when_given():
-    assert preset("full").model == HarnessConfig().model
-    assert preset("no_memory", model="claude-haiku-5-5").model == "claude-haiku-5-5"
-    assert preset("no_memory", model="claude-haiku-5-5").memory_notes is False
+    assert harness_config_for_preset("full").model == HarnessConfig().model
+    assert harness_config_for_preset("no_memory", model="claude-haiku-5-5").model == "claude-haiku-5-5"
+    assert harness_config_for_preset("no_memory", model="claude-haiku-5-5").memory_notes is False
 
 
 def test_unknown_preset_lists_the_valid_names():
     with pytest.raises(ValueError) as excinfo:
-        preset("nope")
+        harness_config_for_preset("nope")
     message = str(excinfo.value)
     assert "'nope'" in message
     for name in PRESETS:

@@ -24,7 +24,7 @@ src/babble/
     loop.py           Agent: the tool-use loop
     accounting.py     per-model usage and cost
     truncate.py       head/tail truncation applied before results enter history
-    policy.py         SafetyPolicy (deny > ask > allow) and approvers
+    policy.py         SafetyPolicy (mutating asks, read-only allowed) and approvers
     audit.py          hash-chained JSONL audit log
     prompts.py        frozen system prompts
     subagent.py       inspect_device tool (wave 3)
@@ -39,7 +39,7 @@ src/babble/
     change.py         ChangeManager: snapshot, apply, verify, rollback
     tools.py          build_tools(): the agent's tool surface
   bench/
-    scenario.py       Scenario model + YAML loader + inject/revert
+    scenario.py       Scenario model + YAML loader + inject_fault/revert_host_side_fault
     scenarios/*.yaml  the scenarios
     configs.py        ablation presets
     runner.py         run trials, score them
@@ -99,30 +99,30 @@ Each package is one branch, built in its own git worktree, by one implementer. W
 - `PRICING: dict[str, tuple[float, float]]` = $ per 1M input/output tokens: `claude-opus-5-5` (4.00, 20.00), `claude-sonnet-5-5` (2.00, 10.00), `claude-haiku-5-5` (0.10, 0.50). Cache writes cost 1.25x input; cache reads cost 0.05x input for opus-5-5 and 0.1x for the others.
 - `cost(usage: Usage, model: str) -> float` in dollars. Unknown model: raise `KeyError`.
 - `class AnthropicClient` implementing `LLMClient`:
-  - `__init__(self, client: anthropic.Anthropic | None = None, fallbacks: bool = True)`.
+  - `__init__(self, client: anthropic.Anthropic | None = None)`.
   - `complete(...)`: builds the request and streams it with `client.messages.stream(**kwargs)` + `get_final_message()`.
     - `thinking={"type": "adaptive"}` always. If `effort`: `output_config={"effort": effort}`.
     - If `cache`: mark the last system block with `cache_control: {"type": "ephemeral"}` (copy the list, never mutate the caller's) and pass top-level `cache_control={"type": "ephemeral"}` so the conversation tail is cached too.
-    - If `fallbacks` and model in `{"claude-opus-5-5", "claude-sonnet-5-5"}`: use `client.beta.messages.stream` with `betas=["server-side-fallback-2026-07-01"]` and `fallbacks="default"`. Check the installed SDK signature with `inspect.signature`; if `fallbacks` is not a parameter, pass it via `extra_body={"fallbacks": "default"}`.
+    - If model in `{"claude-opus-5-5", "claude-sonnet-5-5"}`: use `client.beta.messages.stream` with `betas=["server-side-fallback-2026-07-01"]` and `fallbacks="default"`. Check the installed SDK signature with `inspect.signature`; if `fallbacks` is not a parameter, pass it via `extra_body={"fallbacks": "default"}`.
     - Convert each content block with `block.model_dump(mode="json", exclude_none=True)`.
     - Map usage fields (missing cache fields -> 0) into `Usage`.
 - `class FakeLLMClient` implementing `LLMClient` for tests:
   - `__init__(self, responses: list[LLMResponse])`: returns them in order; raises `AssertionError("FakeLLMClient ran out of responses")` when exhausted.
   - Records every call's kwargs (deep-copied) in `self.calls`.
-  - Helpers: `tool_use(name, input, id=None) -> dict` and `text(s) -> dict` block builders, and `response(*blocks, stop_reason=None, usage=None, model="claude-opus-5-5") -> LLMResponse` (stop_reason defaults to `tool_use` if any tool_use block, else `end_turn`).
+  - Helpers: `tool_use(name, tool_input, tool_use_id=None) -> dict` and `text(s) -> dict` block builders, and `response(*blocks, stop_reason=None, usage=None, model="claude-opus-5-5") -> LLMResponse` (stop_reason defaults to `tool_use` if any tool_use block, else `end_turn`).
 - `assert_append_only(calls) -> None`: for consecutive calls in the same conversation (same first message), the earlier call's `messages` must be an exact prefix of the later one's. Raise `AssertionError` naming the first differing index.
 - Tests: pricing math incl. cache, FakeLLMClient ordering/exhaustion/recording, assert_append_only pass and fail cases, AnthropicClient request building using a stub object in place of `anthropic.Anthropic` (no network).
 
 **W1-B `feat/safety`**: `harness/policy.py`, `harness/audit.py`, `netops/commands.py`, tests for each
 - `netops/commands.py`:
-  - `validate_show(command: str) -> str | None`: returns an error message or None. Must start with `show ` (case-insensitive, after strip), max 200 chars, must not contain any of `| ; & $ \` < > \n \r` or the substring `..`.
-  - `BLOCKED_CONFIG_PATTERNS`: regexes matching destructive config lines: `^no router (bgp|ospf)`, `^no interface`, `^hostname`, `^(write|copy|erase|reload)`, `^no ip forwarding`, `^password`, `^enable password`, `^line vty`, `^username`. `blocked_config(lines: list[str]) -> list[str]` returns one reason per blocked line (empty list = OK). Match on the stripped, lowercased line.
+  - `validate_read_only_show_command(command: str) -> str | None`: returns an error message or None. Must start with `show ` (case-insensitive, after strip), max 200 chars, must not contain any of `| ; & $ \` < > \n \r` or the substring `..`.
+  - `_BLOCKED_CONFIG_PATTERNS`: regexes matching destructive config lines: `^no router (bgp|ospf)`, `^no interface`, `^hostname`, `^(write|copy|erase|reload)`, `^no ip forwarding`, `^password`, `^enable password`, `^line vty`, `^username`. `find_blocked_config_reasons(lines: list[str]) -> list[str]` returns one reason per blocked line (empty list = OK). Match on the stripped, lowercased line.
 - `harness/policy.py`:
-  - `class SafetyPolicy(enabled: bool = True, deny_tools: set[str] = (), allow_tools: set[str] = ())`. `decide(call: ToolCall, spec: ToolSpec) -> tuple[Decision, str]`. Order: tool in deny_tools -> deny; safety disabled -> allow; tool in allow_tools -> allow; spec.mutating -> ask; else allow. The str is a short reason.
+  - `class SafetyPolicy(enabled: bool = True)`. `decide(call: ToolCall, spec: ToolSpec) -> tuple[Decision, str]`, with `Decision = Literal["allow", "ask"]`. Order: safety disabled -> allow; spec.mutating -> ask; else allow. Destructive config lines are refused by the change manager, not here. The str is a short reason.
   - Approvers: `AutoApprover`, `AutoDenier` (note says the operator declined), `CliApprover(input_fn=input, output_fn=print)` that prints the tool name and JSON input and asks `Approve? [y/N]`, plus `ScriptedApprover(decisions: list[bool])` for tests. `make_approver(mode: ApprovalMode) -> Approver`.
 - `harness/audit.py`:
   - `class AuditLog(path: Path | None = None)`. `record(event: Event) -> None` keeps events in memory (`self.events`) and, if path, appends one JSON line. Each line includes `prev_sha256` (hash of the previous line, or 64 zeros) and `sha256` (hash of this line's JSON without the `sha256` field, keys sorted).
-  - `verify_chain(path) -> bool`. `of_type(type) -> list[Event]`.
+  - `verify_chain(path) -> bool`. `of_type(event_type) -> list[Event]`.
 - Tests: show validation table, blocked patterns, every policy branch, approvers, audit chain intact and tamper detection.
 
 **W1-C `feat/scripted-lab-and-checks`**: `lab/scripted.py`, `netops/checks.py`, tests
@@ -131,8 +131,8 @@ Each package is one branch, built in its own git worktree, by one implementer. W
   - State is `"broken"` until `configure` has received, cumulatively per device, every line in `fix[device]` for all devices in `fix` (compare whitespace-normalized lines). Then `"fixed"`.
   - `show(device, command)`: unknown device -> `LabError`; device in hosts -> `LabError("not a router")`; look up `(device, normalized command)` in the fixed table first when fixed, then responses; missing -> `"% Unknown command"` style output.
   - `snapshot` returns an opaque string and remembers which state and applied lines it captured; `restore` returns to exactly that state.
-  - `ping` uses the pings tables (missing -> False). `host_exec` records argv in `self.host_calls` and returns "".
-  - Records `self.config_calls: list[tuple[str, list[str]]]`.
+  - `ping` uses the pings tables (missing -> False). `host_exec` records argv in `self.host_exec_calls` and returns "".
+  - Records `self.configure_calls: list[tuple[str, list[str]]]`.
 - `netops/checks.py`, based on FRR JSON output:
   - `evaluate(check: Check, lab: LabBackend) -> bool`, never raises (LabError or bad JSON -> False).
   - ping: `lab.ping(device, target).ok`.
@@ -145,7 +145,7 @@ Each package is one branch, built in its own git worktree, by one implementer. W
 **W1-D `feat/clab-backend`**: `lab/topology.py`, `lab/clab.py`, `labs/metro/*`, tests
 - `labs/metro/metro.clab.yml`, `labs/metro/configs/<router>.conf` (FRR configs per the topology above), `labs/metro/meta.yaml`.
 - `meta.yaml`: `name`, `devices` (`name: {kind: router|host, role, asn?, loopback?, ip?}`), `links` (list of `{a: "r1:eth1", b: "r2:eth1", subnet: "10.0.12.0/30"}`), `health_checks` (list of `{kind, device, target}`).
-- `lab/topology.py`: `@dataclass Topology(name, dir: Path, devices: dict[str, dict], links: list[dict], health_checks: list[Check])`, `load_topology(name: str, labs_dir: Path | None = None) -> Topology` (default labs dir = repo-root `labs/`), `routers()`, `hosts()`, `describe() -> str` (a compact text map the agent can read).
+- `lab/topology.py`: `@dataclass Topology(name, lab_directory: Path, devices: dict[str, dict], links: list[dict], health_checks: list[Check])`, `load_topology(name: str, labs_dir: Path | None = None) -> Topology` (default labs dir = repo-root `labs/`), `routers()`, `hosts()`, `describe() -> str` (a compact text map the agent can read).
 - `lab/clab.py`:
   - `class CommandRunner(prefix: list[str] | None = None)`: `run(argv, input: str | None = None, timeout=60) -> subprocess.CompletedProcess`; `path(p: Path) -> str` converts Windows paths to `/mnt/<drive>/...` when a WSL prefix is in use. `CommandRunner.from_env()`: if env `BABBLE_WSL_DISTRO` is set, prefix = `["wsl", "-d", distro, "-u", "root", "--"]`.
   - `class ClabLab(topology: Topology, runner: CommandRunner)` implements `LabBackend`. Container name `clab-{topology.name}-{device}`.
@@ -168,26 +168,26 @@ Each package is one branch, built in its own git worktree, by one implementer. W
 
 **W2-E `feat/agent-loop`**: `harness/loop.py`, `harness/accounting.py`, `harness/truncate.py`, `harness/prompts.py`, tests
 - `truncate(text, limit) -> str`: unchanged if short; else head (60%) + `\n[... {n} characters truncated. Narrow the command, e.g. a specific neighbor, prefix or interface ...]\n` + tail (40%).
-- `Accounting`: `add(usage, model)`, `usage` total, `cost_usd`, `by_model`, `calls`.
+- `Accounting`: `add(usage, model)`, `usage` total, `cost_usd`, `unpriced`.
 - `Agent(llm, tools, config, policy, approver, audit, system_prompt, accounting=None, compactor=None, pre_hooks=(), post_hooks=())`, `run(task: str) -> RunResult`.
 - `RunResult`: `diagnosis: Diagnosis | None`, `stop_reason` (`diagnosis` | `max_turns` | `refusal` | `no_diagnosis` | `error`), `turns`, `usage`, `cost_usd`, `messages`, `tool_calls`, `approvals`, `denials`.
 - Loop per turn: optional compaction check -> `llm.complete(model, system, messages, tools, max_tokens, effort, cache=config.prompt_caching)` -> account + audit `llm_call` -> append assistant message verbatim -> handle stop reason -> run tool calls -> append all tool_result blocks in **one** user message.
   - `refusal`: stop. `max_tokens` with tool_use blocks: answer each with an error result ("not run: response was cut off") so every tool_use has a result.
   - No tool calls: append a user text nudge to call `submit_diagnosis` once; a second time, stop with `no_diagnosis`.
-  - Each call: unknown tool -> error result. `pre_hooks` may return a ToolResult to short-circuit. `policy.decide` -> deny (error result "Denied by policy: ...") / ask (`approver.approve`; declined -> error result with the note) / allow. Run the handler; exceptions -> error result `"{type}: {message}"`. `post_hooks` may replace the result. Truncate if configured. Audit each step.
+  - Each call: unknown tool -> error result. `pre_hooks` may return a ToolResult to short-circuit. `policy.decide` -> ask (`approver.approve`; declined -> error result with the note) / allow. Run the handler; exceptions -> error result `"{type}: {message}"`. `post_hooks` may replace the result. Truncate if configured. Audit each step.
   - Parallel: if more than one call and all are `parallel_safe` and none mutating, run handlers in a `ThreadPoolExecutor`; results keep call order.
   - `submit_diagnosis` success: build `Diagnosis` from the call input and stop with `diagnosis` (no need to append its result).
   - Compactor protocol: `should_compact(last_usage: Usage) -> bool`, `compact(task, messages) -> list[dict]` (returns a fresh conversation).
-- Tests (FakeLLMClient + simple fake tools): happy path, parallel execution order, deny/ask/approve/decline, unknown tool, handler exception, truncation, max_turns, nudge then no_diagnosis, refusal, max_tokens, and `assert_append_only(llm.calls)` on every test.
+- Tests (FakeLLMClient + simple fake tools): happy path, parallel execution order, ask/approve/decline, unknown tool, handler exception, truncation, max_turns, nudge then no_diagnosis, refusal, max_tokens, and `assert_append_only(llm.calls)` on every test.
 
 **W2-F `feat/netops-tools`**: `netops/change.py`, `netops/tools.py`, tests
 - `ChangeManager(lab, checks, config, audit)`:
   - `apply(device, lines, rationale) -> ToolResult`: blocked lines -> error result, nothing applied. Snapshot. If `verify_after_change`: evaluate checks before. `lab.configure`; on `LabError`: restore snapshot, error result. Evaluate after; `regressions` = passed before, fail after. If regressions and `auto_rollback`: restore, record rollback, error result naming the broken checks. Else success result listing checks passing x/y and those still failing.
   - `rollback(device) -> ToolResult`: restore the latest snapshot for that device.
-  - `self.changes`: list of dicts `{device, lines, rationale, rolled_back, regressions}`.
+  - `self.change_records`: list of dicts `{device, lines, rationale, rolled_back, regressions}`.
 - `build_tools(lab, topology, change_manager, config) -> list[ToolSpec]`, in this fixed order:
   - `list_devices()`: `topology.describe()`.
-  - `show(device, command)`: `validate_show`, then `lab.show`. Description: prefer `json` output; one device per call.
+  - `show(device, command)`: `validate_read_only_show_command`, then `lab.show`. Description: prefer `json` output; one device per call.
   - `ping(device, target)`.
   - `propose_change(device, lines, rationale)`: **mutating**, `parallel_safe=False` -> `change_manager.apply`.
   - `rollback(device)`: `parallel_safe=False`, not mutating (it restores an approved state) -> `change_manager.rollback`.
@@ -196,7 +196,7 @@ Each package is one branch, built in its own git worktree, by one implementer. W
 
 **W2-G `feat/scenarios`**: `bench/scenario.py`, `bench/scenarios/*.yaml`, tests
 - `Scenario`: `id, title, topology, difficulty (easy|medium|hard), alert, inject: list[InjectStep], checks: list[Check], root_cause: RootCause(device, category), fixable: bool`. `InjectStep`: `device`, and either `config: list[str]` or `host: list[str]` with optional `revert: list[str]`.
-- `load_scenario(path)`, `load_all(dir=None) -> list[Scenario]` sorted by id, `inject(scenario, lab)`, `revert_host(scenario, lab)` (runs `revert` argv for host steps; config faults are reverted by baseline restore).
+- `load_scenario(path)`, `load_all(scenarios_directory=None) -> list[Scenario]` sorted by id, `inject_fault(scenario, lab)`, `revert_host_side_fault(scenario, lab)` (runs `revert` argv for host steps; config faults are reverted by baseline restore).
 - Scenarios on `metro` (ids are file names):
   1. `edge-link-shutdown`: r3 `interface eth3` / `shutdown`. DC unreachable. interface_down @ r3. easy.
   2. `bgp-wrong-remote-as`: rb neighbor 10.2.0.1 remote-as changed to 65010. Site B isolated. bgp_neighbor_misconfig @ rb. easy.

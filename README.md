@@ -127,10 +127,10 @@ babble report runs/<timestamp>/results.jsonl
 alert --> agent loop (raw Messages API, append-only history)
             | list_devices, show, ping, inspect_device (subagent), notes
             v
-          safety policy:  deny > ask > allow
+          safety policy:  read-only calls allowed; other mutating calls ask
             | propose_change
             v
-          approver --> change manager: snapshot -> apply -> wait for convergence -> service checks
+          approver --> change manager (refuses destructive config lines): snapshot -> apply -> wait for convergence -> service checks
                                                        regression? --> restore snapshot
             v
           hash-chained audit log: every model call, tool call, approval, change and rollback

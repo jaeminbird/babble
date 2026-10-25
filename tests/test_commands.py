@@ -1,6 +1,10 @@
 import pytest
 
-from babble.netops.commands import MAX_SHOW_LENGTH, blocked_config, validate_show
+from babble.netops.commands import (
+    MAX_SHOW_COMMAND_CHARACTERS,
+    find_blocked_config_reasons,
+    validate_read_only_show_command,
+)
 
 
 @pytest.mark.parametrize(
@@ -14,7 +18,7 @@ from babble.netops.commands import MAX_SHOW_LENGTH, blocked_config, validate_sho
     ],
 )
 def test_valid_show_commands(command):
-    assert validate_show(command) is None
+    assert validate_read_only_show_command(command) is None
 
 
 @pytest.mark.parametrize(
@@ -36,19 +40,19 @@ def test_valid_show_commands(command):
         ("show ip route\nconfigure terminal", "forbidden character '\\n'"),
         ("show ip route\rconfigure terminal", "forbidden character '\\r'"),
         ("show ip route ../../etc", "forbidden sequence '..'"),
-        ("show " + "a" * MAX_SHOW_LENGTH, "longer than"),
+        ("show " + "a" * MAX_SHOW_COMMAND_CHARACTERS, "longer than"),
     ],
 )
 def test_rejected_show_commands(command, fragment):
-    error = validate_show(command)
+    error = validate_read_only_show_command(command)
     assert error is not None
     assert fragment in error
 
 
 def test_show_at_length_limit_is_allowed():
-    command = "show " + "a" * (MAX_SHOW_LENGTH - len("show "))
-    assert len(command) == MAX_SHOW_LENGTH
-    assert validate_show(command) is None
+    command = "show " + "a" * (MAX_SHOW_COMMAND_CHARACTERS - len("show "))
+    assert len(command) == MAX_SHOW_COMMAND_CHARACTERS
+    assert validate_read_only_show_command(command) is None
 
 
 @pytest.mark.parametrize(
@@ -71,8 +75,8 @@ def test_show_at_length_limit_is_allowed():
         "  Hostname r9",
     ],
 )
-def test_blocked_config_lines(line):
-    reasons = blocked_config([line])
+def test_find_blocked_config_reasons_lines(line):
+    reasons = find_blocked_config_reasons([line])
     assert len(reasons) == 1
     assert line.strip() in reasons[0]
 
@@ -92,14 +96,14 @@ def test_blocked_config_lines(line):
     ],
 )
 def test_allowed_config_lines(line):
-    assert blocked_config([line]) == []
+    assert find_blocked_config_reasons([line]) == []
 
 
-def test_blocked_config_empty_input():
-    assert blocked_config([]) == []
+def test_find_blocked_config_reasons_empty_input():
+    assert find_blocked_config_reasons([]) == []
 
 
-def test_blocked_config_one_reason_per_blocked_line():
+def test_find_blocked_config_reasons_one_reason_per_blocked_line():
     lines = [
         "router bgp 65000",
         "no router bgp 65000",
@@ -107,13 +111,13 @@ def test_blocked_config_one_reason_per_blocked_line():
         "hostname r9",
         "no shutdown",
     ]
-    reasons = blocked_config(lines)
+    reasons = find_blocked_config_reasons(lines)
     assert len(reasons) == 2
     assert "no router bgp 65000" in reasons[0]
     assert "hostname r9" in reasons[1]
 
 
-def test_blocked_config_does_not_match_mid_line():
+def test_find_blocked_config_reasons_does_not_match_mid_line():
     # Patterns are anchored: a dangerous word later in the line is not a match.
-    assert blocked_config(["description do not reload"]) == []
-    assert blocked_config(["neighbor 1.1.1.1 description hostname"]) == []
+    assert find_blocked_config_reasons(["description do not reload"]) == []
+    assert find_blocked_config_reasons(["neighbor 1.1.1.1 description hostname"]) == []

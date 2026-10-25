@@ -190,12 +190,12 @@ class _ExplodingLab:
     def show(self, device, command):
         raise LabError("container down")
 
-    def ping(self, device, target, count=3):
+    def ping(self, device, target):
         raise LabError("ping failed")
 
 
 class _BadPingLab:
-    def ping(self, device, target, count=3):
+    def ping(self, device, target):
         return PingResult(sent=3, received=0, output="")
 
     def show(self, device, command):
@@ -232,7 +232,7 @@ def test_evaluate_unknown_kind_raises_value_error():
 
 
 class _ProgrammingErrorLab:
-    def ping(self, device, target, count=3):
+    def ping(self, device, target):
         raise RuntimeError("a bug in the lab backend")
 
 

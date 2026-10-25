@@ -66,7 +66,7 @@ class RunResult:
     tool_calls: int
     # Approver approvals of gated calls.
     approvals: int
-    # Approver declines plus calls denied by policy.
+    # Gated calls the approver declined.
     denials: int
     # Input of the finish call when the finish tool is not submit_diagnosis. None otherwise.
     finish_tool_input: dict[str, Any] | None = None
@@ -313,9 +313,18 @@ class _Run:
     def _finish_and_record_if_finish_call(
         self, call: ToolCall, tool_spec: ToolSpec, result: ToolResult
     ) -> ToolResult:
+        parsed_diagnosis: Diagnosis | None = None
+        if tool_spec.name == SUBMIT_TOOL and not result.is_error:
+            try:
+                parsed_diagnosis = Diagnosis.from_tool_input(call.input)
+            except ValueError as problem:
+                result = ToolResult(
+                    f"Diagnosis not recorded: {problem}. Call {SUBMIT_TOOL} again with every field.",
+                    is_error=True,
+                )
         result = self._apply_post_hooks_truncate_and_audit(call, result)
         if tool_spec.name == self.agent.finish_tool_name and not result.is_error:
-            self._record_finish_tool_call(call.input)
+            self._record_finish_tool_call(call.input, parsed_diagnosis)
         return result
 
     def _gate_before_running(self, call: ToolCall, tool_spec: ToolSpec | None) -> ToolResult | None:
@@ -332,10 +341,6 @@ class _Run:
             if short_circuit is not None:
                 return short_circuit
         decision, reason = self.agent.policy.decide(call, tool_spec)
-        if decision == "deny":
-            self.denials += 1
-            self.audit.record(Event("denied", {"id": call.id, "name": call.name, "reason": reason}))
-            return ToolResult(f"Denied by policy: {reason}", is_error=True)
         if decision == "ask":
             approved, note = self._ask_approver_about_call(call, reason)
             self.audit.record(
@@ -370,14 +375,19 @@ class _Run:
             )
         self._append_tool_results(tool_calls, results)
 
-    def _record_finish_tool_call(self, finish_input: dict[str, Any]) -> None:
+    def _record_finish_tool_call(
+        self, finish_input: dict[str, Any], parsed_diagnosis: Diagnosis | None
+    ) -> None:
         if self.run_has_finished:
             return
         self.run_has_finished = True
         if self.agent.finish_tool_name != SUBMIT_TOOL:
             self.finish_tool_input = finish_input
             return
-        self.diagnosis = Diagnosis.from_tool_input(finish_input)
+        # Only a post hook that turns a failed submit into a success leaves nothing parsed yet.
+        if parsed_diagnosis is None:
+            parsed_diagnosis = Diagnosis.from_tool_input(finish_input)
+        self.diagnosis = parsed_diagnosis
         self.audit.record(Event("diagnosis", asdict(self.diagnosis)))
 
     def _audit_call(self, call: ToolCall) -> None:
@@ -390,14 +400,6 @@ class _Run:
             result = tool_spec.handler(call.input)
         except Exception as exc:  # noqa: BLE001 - a handler failure is reported to the model
             return ToolResult(f"{type(exc).__name__}: {exc}", is_error=True)
-        if tool_spec.name == SUBMIT_TOOL and not result.is_error:
-            try:
-                Diagnosis.from_tool_input(call.input)
-            except ValueError as problem:
-                return ToolResult(
-                    f"Diagnosis not recorded: {problem}. Call {SUBMIT_TOOL} again with every field.",
-                    is_error=True,
-                )
         return result
 
     def _apply_post_hooks_truncate_and_audit(

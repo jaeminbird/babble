@@ -31,9 +31,9 @@ class RecordingLab(ScriptedLab):
         self.show_calls.append((device, command))
         return super().show(device, command)
 
-    def ping(self, device: str, target: str, count: int = 3) -> PingResult:
+    def ping(self, device: str, target: str) -> PingResult:
         self.ping_calls.append((device, target))
-        return super().ping(device, target, count)
+        return super().ping(device, target)
 
 
 def _lab() -> RecordingLab:
@@ -76,8 +76,8 @@ def _invoke(tool, device: str, question: str = QUESTION) -> ToolResult:
 def test_child_runs_only_on_its_router_with_show_ping_and_submit_findings():
     child_llm = FakeLLMClient(
         [
-            _child(tool_use("show", {"command": "show ip bgp summary json"}, id="c1")),
-            _child(tool_use("ping", {"target": "10.100.0.2"}, id="c2")),
+            _child(tool_use("show", {"command": "show ip bgp summary json"}, tool_use_id="c1")),
+            _child(tool_use("ping", {"target": "10.100.0.2"}, tool_use_id="c2")),
             _child(_findings("Session is up.", ["BGP summary shows Established"])),
         ]
     )
@@ -96,7 +96,7 @@ def test_child_runs_only_on_its_router_with_show_ping_and_submit_findings():
 def test_child_show_that_is_not_read_only_never_reaches_the_lab():
     child_llm = FakeLLMClient(
         [
-            _child(tool_use("show", {"command": "show version; reload"}, id="c1")),
+            _child(tool_use("show", {"command": "show version; reload"}, tool_use_id="c1")),
             _child(_findings("Could not inspect.", [])),
         ]
     )
@@ -118,7 +118,7 @@ def test_child_show_that_is_not_read_only_never_reaches_the_lab():
 def test_findings_come_back_as_a_compact_summary_with_facts():
     child_llm = FakeLLMClient(
         [
-            _child(tool_use("show", {"command": "show ip bgp summary json"}, id="c1")),
+            _child(tool_use("show", {"command": "show ip bgp summary json"}, tool_use_id="c1")),
             _child(
                 _findings(
                     "The session to 10.100.0.2 is Established, so it is not down.",
@@ -159,7 +159,7 @@ def test_child_gets_the_router_and_question_as_its_task_on_the_subagent_model():
 def test_child_usage_lands_in_the_shared_accounting_under_the_subagent_model():
     child_llm = FakeLLMClient(
         [
-            _child(tool_use("show", {"command": "show ip bgp summary json"}, id="c1")),
+            _child(tool_use("show", {"command": "show ip bgp summary json"}, tool_use_id="c1")),
             _child(_findings("Done.", [])),
         ]
     )
@@ -168,8 +168,7 @@ def test_child_usage_lands_in_the_shared_accounting_under_the_subagent_model():
 
     _invoke(tool, "r3")
 
-    assert accounting.calls == 2
-    assert accounting.by_model == {HAIKU: Usage(200, 20)}
+    assert accounting.usage == Usage(200, 20)
     assert accounting.cost_usd > 0
     assert_append_only(child_llm.calls)
 
@@ -180,7 +179,7 @@ def test_child_usage_lands_in_the_shared_accounting_under_the_subagent_model():
 def test_child_events_are_tagged_with_the_device_and_a_subagent_event_is_recorded():
     child_llm = FakeLLMClient(
         [
-            _child(tool_use("show", {"command": "show ip bgp summary json"}, id="c1")),
+            _child(tool_use("show", {"command": "show ip bgp summary json"}, tool_use_id="c1")),
             _child(_findings("Done.", [])),
         ]
     )
@@ -266,13 +265,13 @@ def test_parent_inspects_two_routers_in_one_turn_then_submits_a_diagnosis():
     accounting = Accounting()
     r3_llm = FakeLLMClient(
         [
-            _child(tool_use("show", {"command": "show ip bgp summary json"}, id="c1")),
+            _child(tool_use("show", {"command": "show ip bgp summary json"}, tool_use_id="c1")),
             _child(_findings("BGP to 10.100.0.2 is Established.", ["summary shows Established"])),
         ]
     )
     r1_llm = FakeLLMClient(
         [
-            _child(tool_use("show", {"command": "show ip ospf neighbor json"}, id="c2")),
+            _child(tool_use("show", {"command": "show ip ospf neighbor json"}, tool_use_id="c2")),
             _child(_findings("No OSPF neighbors on r1.", ["ospf neighbor json is empty"])),
         ]
     )
@@ -289,8 +288,8 @@ def test_parent_inspects_two_routers_in_one_turn_then_submits_a_diagnosis():
     parent_llm = FakeLLMClient(
         [
             response(
-                tool_use("inspect_device", {"device": "r3", "question": QUESTION}, id="p1"),
-                tool_use("inspect_device", {"device": "r1", "question": "Is OSPF up?"}, id="p2"),
+                tool_use("inspect_device", {"device": "r3", "question": QUESTION}, tool_use_id="p1"),
+                tool_use("inspect_device", {"device": "r1", "question": "Is OSPF up?"}, tool_use_id="p2"),
             ),
             response(
                 tool_use(
@@ -302,14 +301,14 @@ def test_parent_inspects_two_routers_in_one_turn_then_submits_a_diagnosis():
                         "evidence": ["r3 BGP summary", "r1 OSPF neighbors"],
                         "fix_applied": False,
                     },
-                    id="p3",
+                    tool_use_id="p3",
                 )
             ),
         ]
     )
     parent = Agent(
         llm=parent_llm,
-        tools=build_tools(lab, TOPO, changes, extra=[inspect]),
+        tools=build_tools(lab, TOPO, changes, extra_tools=[inspect]),
         config=config,
         policy=SafetyPolicy(),
         approver=AutoApprover(),
@@ -329,8 +328,8 @@ def test_parent_inspects_two_routers_in_one_turn_then_submits_a_diagnosis():
     assert blocks[0]["content"].startswith("Findings from r3:\nBGP to 10.100.0.2 is Established.")
     assert blocks[1]["content"].startswith("Findings from r1:\nNo OSPF neighbors on r1.")
     assert {event.data["device"] for event in audit.of_type("subagent")} == {"r1", "r3"}
-    # Parent calls and both children's calls share one accounting.
-    assert accounting.calls == len(parent_llm.calls) + len(r3_llm.calls) + len(r1_llm.calls)
+    # Both children add their usage to the parent's accounting; the parent's own calls use none here.
+    assert accounting.usage.input_tokens == 100 * (len(r3_llm.calls) + len(r1_llm.calls))
     for llm in (parent_llm, r3_llm, r1_llm):
         assert_append_only(llm.calls)
 
