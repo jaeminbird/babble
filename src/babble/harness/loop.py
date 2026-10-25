@@ -28,7 +28,6 @@ from babble.types import (
 )
 
 SUBMIT_TOOL = "submit_diagnosis"
-SUBMIT_FIELDS = ("root_cause_device", "category", "summary", "evidence", "fix_applied")
 
 CUT_OFF = "not run: response was cut off"
 SKIPPED_AFTER_FINISH = "not run: the run already finished"
@@ -117,17 +116,17 @@ class _Run:
         self.audit = agent.audit
         self.task = task
         self.messages: list[dict[str, Any]] = [{"role": "user", "content": task}]
-        self.system = [{"type": "text", "text": agent.system_prompt}]
-        self.specs = {spec.name: spec for spec in agent.tools}
+        self.system_blocks = [{"type": "text", "text": agent.system_prompt}]
+        self.tool_specs_by_name = {spec.name: spec for spec in agent.tools}
         # Built once per run, in the given order, so the cached prefix stays stable.
-        self.api_tools = [spec.to_api() for spec in agent.tools]
+        self.tool_definitions_for_api = [spec.to_api() for spec in agent.tools]
         self.accounting = agent.accounting if agent.accounting is not None else Accounting()
         self.turns = 0
         self.tool_calls = 0
         self.approvals = 0
         self.denials = 0
-        self.nudged = False
-        self.finished = False
+        self.nudge_sent = False
+        self.run_has_finished = False
         self.diagnosis: Diagnosis | None = None
         self.finish_tool_input: dict[str, Any] | None = None
         self.last_usage = Usage()
@@ -135,18 +134,18 @@ class _Run:
     # ------------------------------------------------------------------ loop
 
     def execute(self) -> RunResult:
-        cfg = self.config
-        for turn in range(1, cfg.max_turns + 1):
+        harness_config = self.config
+        for turn in range(1, harness_config.max_turns + 1):
             try:
                 self._maybe_compact(turn)
                 response = self.agent.llm.complete(
-                    model=cfg.model,
-                    system=self.system,
+                    model=harness_config.model,
+                    system=self.system_blocks,
                     messages=self.messages,
-                    tools=self.api_tools,
-                    max_tokens=cfg.max_tokens,
-                    effort=cfg.effort,
-                    cache=cfg.prompt_caching,
+                    tools=self.tool_definitions_for_api,
+                    max_tokens=harness_config.max_tokens,
+                    effort=harness_config.effort,
+                    cache=harness_config.prompt_caching,
                 )
             # An API failure ends the run with stop_reason error. It must not crash the caller.
             except Exception as exc:  # noqa: BLE001
@@ -182,22 +181,22 @@ class _Run:
             if response.stop_reason == "refusal":
                 return self._stop("refusal")
 
-            calls = response.tool_calls
-            if calls and response.stop_reason == "max_tokens":
+            tool_calls_in_turn = response.tool_calls
+            if tool_calls_in_turn and response.stop_reason == "max_tokens":
                 # The tool_use blocks may be truncated, so none of them runs. Each still gets a
                 # result, so the history stays valid for the next turn.
-                self._answer_cut_off(calls)
+                self._answer_cut_off_calls(tool_calls_in_turn)
                 continue
-            if not calls:
-                if self.nudged:
+            if not tool_calls_in_turn:
+                if self.nudge_sent:
                     return self._stop("no_diagnosis")
-                self.nudged = True
+                self.nudge_sent = True
                 nudge = NUDGE.format(finish_tool_name=self.agent.finish_tool_name)
                 self.messages.append({"role": "user", "content": nudge})
                 continue
 
-            self._run_calls(calls)
-            if self.finished:
+            self._run_tool_calls_from_turn(tool_calls_in_turn)
+            if self.run_has_finished:
                 return self._stop("diagnosis" if self.diagnosis is not None else "finished")
 
         return self._stop("max_turns")
@@ -206,12 +205,16 @@ class _Run:
         compactor = self.agent.compactor
         if compactor is None or not compactor.should_compact(self.last_usage):
             return
-        before = len(self.messages)
+        messages_before = len(self.messages)
         self.messages = compactor.compact(self.task, self.messages)
         self.audit.record(
             Event(
                 "compaction",
-                {"turn": turn, "messages_before": before, "messages_after": len(self.messages)},
+                {
+                    "turn": turn,
+                    "messages_before": messages_before,
+                    "messages_after": len(self.messages),
+                },
             )
         )
 
@@ -232,64 +235,89 @@ class _Run:
 
     # ----------------------------------------------------------------- tools
 
-    def _run_calls(self, calls: list[ToolCall]) -> None:
-        self.tool_calls += len(calls)
-        specs = [self.specs.get(call.name) for call in calls]
-        known = [spec for spec in specs if spec is not None]
-        if len(known) == len(calls) and _is_parallel_batch(known):
-            results = self._run_parallel(calls, known)
+    def _run_tool_calls_from_turn(self, tool_calls_from_turn: list[ToolCall]) -> None:
+        self.tool_calls += len(tool_calls_from_turn)
+        tool_specs = [self.tool_specs_by_name.get(call.name) for call in tool_calls_from_turn]
+        known_tool_specs = [spec for spec in tool_specs if spec is not None]
+        if len(known_tool_specs) == len(tool_calls_from_turn) and _is_parallel_safe_batch(
+            known_tool_specs
+        ):
+            results = self._run_parallel_read_only_batch(tool_calls_from_turn, known_tool_specs)
         else:
-            results = [self._run_one(call, spec) for call, spec in zip(calls, specs, strict=True)]
-        # All results for one turn go back in one user message, in call order.
-        blocks = [
-            self._result_block(call, result) for call, result in zip(calls, results, strict=True)
-        ]
-        self.messages.append({"role": "user", "content": blocks})
+            results = [
+                self._gate_and_run_single_tool_call(call, spec)
+                for call, spec in zip(tool_calls_from_turn, tool_specs, strict=True)
+            ]
+        self._append_tool_results(tool_calls_from_turn, results)
 
-    def _run_one(self, call: ToolCall, spec: ToolSpec | None) -> ToolResult:
+    def _append_tool_results(self, tool_calls: list[ToolCall], results: list[ToolResult]) -> None:
+        """All results for one turn go back in one user message, in call order."""
+        result_blocks = [
+            self._tool_result_block(call, result)
+            for call, result in zip(tool_calls, results, strict=True)
+        ]
+        self.messages.append({"role": "user", "content": result_blocks})
+
+    def _gate_and_run_single_tool_call(
+        self, call: ToolCall, tool_spec: ToolSpec | None
+    ) -> ToolResult:
         """Gate, run and finish one call. A serial batch handles each call in full before the next
         is gated, so a later call's approval never comes before an earlier call has run."""
         self._audit_call(call)
-        gated = self._gate(call, spec)
-        if gated is not None:
-            return self._finish(call, gated)
-        assert spec is not None  # _gate returns an error for unknown tools
-        return self._complete(call, spec, self._execute(call, spec))
+        gated_result = self._gate_before_running(call, tool_spec)
+        if gated_result is not None:
+            return self._apply_post_hooks_truncate_and_audit(call, gated_result)
+        assert tool_spec is not None  # _gate_before_running returns an error for unknown tools
+        return self._finish_and_record_if_finish_call(
+            call, tool_spec, self._invoke_tool_handler(call, tool_spec)
+        )
 
-    def _run_parallel(self, calls: list[ToolCall], specs: list[ToolSpec]) -> list[ToolResult]:
+    def _run_parallel_read_only_batch(
+        self, tool_calls: list[ToolCall], tool_specs: list[ToolSpec]
+    ) -> list[ToolResult]:
         """Gate every call on this thread, run the allowed handlers concurrently, then finish them
         in call order. Only read-only, parallel-safe tools reach this path, so nothing here asks
         for approval."""
-        for call in calls:
+        for call in tool_calls:
             self._audit_call(call)
-        gated = [self._gate(call, spec) for call, spec in zip(calls, specs, strict=True)]
-        runnable = [i for i, outcome in enumerate(gated) if outcome is None]
-        ran: dict[int, ToolResult] = {}
-        if runnable:
-            with ThreadPoolExecutor(max_workers=len(runnable)) as pool:
-                outputs = pool.map(lambda i: self._execute(calls[i], specs[i]), runnable)
-                ran = dict(zip(runnable, outputs, strict=True))
+        gate_outcomes = [
+            self._gate_before_running(call, spec)
+            for call, spec in zip(tool_calls, tool_specs, strict=True)
+        ]
+        indexes_to_run = [i for i, outcome in enumerate(gate_outcomes) if outcome is None]
+        results_by_index: dict[int, ToolResult] = {}
+        if indexes_to_run:
+            with ThreadPoolExecutor(max_workers=len(indexes_to_run)) as pool:
+                outputs = pool.map(
+                    lambda i: self._invoke_tool_handler(tool_calls[i], tool_specs[i]),
+                    indexes_to_run,
+                )
+                results_by_index = dict(zip(indexes_to_run, outputs, strict=True))
         results: list[ToolResult] = []
-        for i, (call, spec) in enumerate(zip(calls, specs, strict=True)):
-            if i in ran:
-                results.append(self._complete(call, spec, ran[i]))
+        for i, (call, spec) in enumerate(zip(tool_calls, tool_specs, strict=True)):
+            if i in results_by_index:
+                results.append(
+                    self._finish_and_record_if_finish_call(call, spec, results_by_index[i])
+                )
             else:
-                outcome = gated[i]
-                assert outcome is not None
-                results.append(self._finish(call, outcome))
+                gate_outcome = gate_outcomes[i]
+                assert gate_outcome is not None
+                results.append(self._apply_post_hooks_truncate_and_audit(call, gate_outcome))
         return results
 
-    def _complete(self, call: ToolCall, spec: ToolSpec, result: ToolResult) -> ToolResult:
-        result = self._finish(call, result)
-        if spec.name == self.agent.finish_tool_name and not result.is_error:
-            self._record_finish(call.input)
+    def _finish_and_record_if_finish_call(
+        self, call: ToolCall, tool_spec: ToolSpec, result: ToolResult
+    ) -> ToolResult:
+        result = self._apply_post_hooks_truncate_and_audit(call, result)
+        if tool_spec.name == self.agent.finish_tool_name and not result.is_error:
+            self._record_finish_tool_call(call.input)
         return result
 
-    def _gate(self, call: ToolCall, spec: ToolSpec | None) -> ToolResult | None:
+    def _gate_before_running(self, call: ToolCall, tool_spec: ToolSpec | None) -> ToolResult | None:
         """Return a final result if the call must not run, or None to run it."""
-        if self.finished:
+        if self.run_has_finished:
             return ToolResult(SKIPPED_AFTER_FINISH, is_error=True)
-        if spec is None:
+        if tool_spec is None:
             return ToolResult(f"Unknown tool: {call.name}", is_error=True)
         for hook in self.agent.pre_hooks:
             try:
@@ -298,13 +326,13 @@ class _Run:
                 return ToolResult(f"{type(exc).__name__}: {exc}", is_error=True)
             if short_circuit is not None:
                 return short_circuit
-        decision, reason = self.agent.policy.decide(call, spec)
+        decision, reason = self.agent.policy.decide(call, tool_spec)
         if decision == "deny":
             self.denials += 1
             self.audit.record(Event("denied", {"id": call.id, "name": call.name, "reason": reason}))
             return ToolResult(f"Denied by policy: {reason}", is_error=True)
         if decision == "ask":
-            approved, note = self._ask(call, reason)
+            approved, note = self._ask_approver_about_call(call, reason)
             self.audit.record(
                 Event(
                     "approval",
@@ -318,7 +346,7 @@ class _Run:
             return ToolResult(note, is_error=True)
         return None
 
-    def _ask(self, call: ToolCall, reason: str) -> tuple[bool, str]:
+    def _ask_approver_about_call(self, call: ToolCall, reason: str) -> tuple[bool, str]:
         try:
             return self.agent.approver.approve(call, reason)
         except Exception as exc:  # noqa: BLE001 - an approver that fails declines the call
@@ -327,28 +355,29 @@ class _Run:
                 f"Approval failed, so the change was not made: {type(exc).__name__}: {exc}",
             )
 
-    def _answer_cut_off(self, calls: list[ToolCall]) -> None:
-        self.tool_calls += len(calls)
-        blocks = []
-        for call in calls:
+    def _answer_cut_off_calls(self, tool_calls: list[ToolCall]) -> None:
+        self.tool_calls += len(tool_calls)
+        results = []
+        for call in tool_calls:
             self._audit_call(call)
-            result = self._finish(call, ToolResult(CUT_OFF, is_error=True))
-            blocks.append(self._result_block(call, result))
-        self.messages.append({"role": "user", "content": blocks})
+            results.append(
+                self._apply_post_hooks_truncate_and_audit(call, ToolResult(CUT_OFF, is_error=True))
+            )
+        self._append_tool_results(tool_calls, results)
 
-    def _record_finish(self, data: dict[str, Any]) -> None:
-        if self.finished:
+    def _record_finish_tool_call(self, finish_input: dict[str, Any]) -> None:
+        if self.run_has_finished:
             return
-        self.finished = True
+        self.run_has_finished = True
         if self.agent.finish_tool_name != SUBMIT_TOOL:
-            self.finish_tool_input = data
+            self.finish_tool_input = finish_input
             return
         self.diagnosis = Diagnosis(
-            root_cause_device=data["root_cause_device"],
-            category=data["category"],
-            summary=data["summary"],
-            evidence=list(data["evidence"]),
-            fix_applied=bool(data["fix_applied"]),
+            root_cause_device=finish_input["root_cause_device"],
+            category=finish_input["category"],
+            summary=finish_input["summary"],
+            evidence=list(finish_input["evidence"]),
+            fix_applied=bool(finish_input["fix_applied"]),
         )
         self.audit.record(Event("diagnosis", asdict(self.diagnosis)))
 
@@ -357,13 +386,13 @@ class _Run:
             Event("tool_call", {"id": call.id, "name": call.name, "input": call.input})
         )
 
-    def _execute(self, call: ToolCall, spec: ToolSpec) -> ToolResult:
+    def _invoke_tool_handler(self, call: ToolCall, tool_spec: ToolSpec) -> ToolResult:
         try:
-            result = spec.handler(call.input)
+            result = tool_spec.handler(call.input)
         except Exception as exc:  # noqa: BLE001 - a handler failure is reported to the model
             return ToolResult(f"{type(exc).__name__}: {exc}", is_error=True)
-        if spec.name == SUBMIT_TOOL and not result.is_error:
-            problems = _submit_problems(call.input)
+        if tool_spec.name == SUBMIT_TOOL and not result.is_error:
+            problems = _submit_diagnosis_problems(call.input)
             if problems:
                 return ToolResult(
                     "Diagnosis not recorded: "
@@ -373,7 +402,9 @@ class _Run:
                 )
         return result
 
-    def _finish(self, call: ToolCall, result: ToolResult) -> ToolResult:
+    def _apply_post_hooks_truncate_and_audit(
+        self, call: ToolCall, result: ToolResult
+    ) -> ToolResult:
         for hook in self.agent.post_hooks:
             try:
                 replacement = hook(call, result)
@@ -382,9 +413,9 @@ class _Run:
                 continue
             if replacement is not None:
                 result = replacement
-        limit = self.config.truncate_tool_output
-        if limit is not None:
-            result = ToolResult(truncate(result.content, limit), result.is_error)
+        truncate_limit = self.config.truncate_tool_output
+        if truncate_limit is not None:
+            result = ToolResult(truncate(result.content, truncate_limit), result.is_error)
         self.audit.record(
             Event(
                 "tool_result",
@@ -399,7 +430,7 @@ class _Run:
         return result
 
     @staticmethod
-    def _result_block(call: ToolCall, result: ToolResult) -> dict[str, Any]:
+    def _tool_result_block(call: ToolCall, result: ToolResult) -> dict[str, Any]:
         block: dict[str, Any] = {
             "type": "tool_result",
             "tool_use_id": call.id,
@@ -410,12 +441,14 @@ class _Run:
         return block
 
 
-def _is_parallel_batch(specs: list[ToolSpec]) -> bool:
+def _is_parallel_safe_batch(tool_specs: list[ToolSpec]) -> bool:
     """More than one call, all read-only and parallel-safe: the handlers may run concurrently."""
-    return len(specs) > 1 and all(s.parallel_safe and not s.mutating for s in specs)
+    return len(tool_specs) > 1 and all(
+        spec.parallel_safe and not spec.mutating for spec in tool_specs
+    )
 
 
-_SUBMIT_TYPES: dict[str, type | tuple[type, ...]] = {
+_SUBMIT_DIAGNOSIS_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "root_cause_device": str,
     "category": str,
     "summary": str,
@@ -424,15 +457,15 @@ _SUBMIT_TYPES: dict[str, type | tuple[type, ...]] = {
 }
 
 
-def _submit_problems(data: dict[str, Any]) -> list[str]:
+def _submit_diagnosis_problems(submitted_input: dict[str, Any]) -> list[str]:
     """Why a submit_diagnosis input cannot become a Diagnosis. Empty when it can."""
     problems = []
-    for field in SUBMIT_FIELDS:
-        if field not in data:
+    for field, expected_type in _SUBMIT_DIAGNOSIS_FIELD_TYPES.items():
+        if field not in submitted_input:
             problems.append(f"missing {field}")
-        elif not isinstance(data[field], _SUBMIT_TYPES[field]):
+        elif not isinstance(submitted_input[field], expected_type):
             problems.append(f"{field} has the wrong type")
-    evidence = data.get("evidence")
+    evidence = submitted_input.get("evidence")
     if isinstance(evidence, list) and not all(isinstance(item, str) for item in evidence):
         problems.append("evidence must be a list of strings")
     return problems

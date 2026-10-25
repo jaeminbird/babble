@@ -130,7 +130,7 @@ def test_response_helper_defaults():
     assert tool_resp.stop_reason == "tool_use"
     assert tool_resp.model == "claude-opus-5-5"
     assert tool_resp.usage == Usage()
-    assert [c.name for c in tool_resp.tool_calls] == ["run_show"]
+    assert [tool_call.name for tool_call in tool_resp.tool_calls] == ["run_show"]
 
     done = response(text("all good"))
     assert done.stop_reason == "end_turn"
@@ -139,12 +139,12 @@ def test_response_helper_defaults():
 
 def test_response_helper_overrides():
     usage = Usage(input_tokens=5, output_tokens=7)
-    resp = response(
+    llm_response = response(
         text("x"), stop_reason="max_tokens", usage=usage, model="claude-haiku-5-5"
     )
-    assert resp.stop_reason == "max_tokens"
-    assert resp.usage is usage
-    assert resp.model == "claude-haiku-5-5"
+    assert llm_response.stop_reason == "max_tokens"
+    assert llm_response.usage is usage
+    assert llm_response.model == "claude-haiku-5-5"
 
 
 # ------------------------------------------------------------------ assert_append_only
@@ -357,17 +357,17 @@ def test_response_blocks_are_plain_dicts_and_metadata_is_mapped():
     )
     stub = _StubAnthropic(final)
 
-    resp = _complete(stub, model="claude-sonnet-5-5")
+    llm_response = _complete(stub, model="claude-sonnet-5-5")
 
-    assert resp.content == [
+    assert llm_response.content == [
         {"type": "text", "text": "checking"},
         {"type": "tool_use", "id": "toolu_1", "name": "show", "input": {"device": "r1"}},
     ]
-    assert resp.stop_reason == "tool_use"
-    assert resp.model == "claude-sonnet-5-5"
-    assert resp.text == "checking"
-    assert [c.id for c in resp.tool_calls] == ["toolu_1"]
-    assert resp.usage == Usage(
+    assert llm_response.stop_reason == "tool_use"
+    assert llm_response.model == "claude-sonnet-5-5"
+    assert llm_response.text == "checking"
+    assert [tool_call.id for tool_call in llm_response.tool_calls] == ["toolu_1"]
+    assert llm_response.usage == Usage(
         input_tokens=100,
         output_tokens=20,
         cache_creation_input_tokens=300,

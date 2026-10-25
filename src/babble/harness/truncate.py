@@ -13,12 +13,13 @@ def truncate(text: str, limit: int) -> str:
         raise ValueError("limit must be >= 0")
     if len(text) <= limit:
         return text
-    head_len = int(limit * HEAD_SHARE)
-    tail_len = int(limit * (1 - HEAD_SHARE))
-    dropped = len(text) - head_len - tail_len
+    head_length = int(limit * HEAD_SHARE)
+    tail_length = int(limit * (1 - HEAD_SHARE))
+    characters_dropped = len(text) - head_length - tail_length
     marker = (
-        f"\n[... {dropped} characters truncated. Narrow the command, "
+        f"\n[... {characters_dropped} characters truncated. Narrow the command, "
         "e.g. a specific neighbor, prefix or interface ...]\n"
     )
-    tail = text[len(text) - tail_len :] if tail_len else ""
-    return text[:head_len] + marker + tail
+    # text[len(text) - 0:] is empty, so a zero-length tail needs no special case.
+    tail = text[len(text) - tail_length :]
+    return text[:head_length] + marker + tail
