@@ -1,10 +1,11 @@
 import hashlib
 import itertools
 import json
+import threading
 
 import pytest
 
-from faultline.harness.audit import GENESIS, AuditLog, verify_chain
+from faultline.harness.audit import GENESIS, AuditLog, TaggedAuditLog, verify_chain
 from faultline.types import Event
 
 
@@ -222,3 +223,54 @@ def test_non_object_or_unhashed_line_is_detected(tmp_path, bad):
     path = tmp_path / "audit.jsonl"
     path.write_text(bad + "\n", encoding="utf-8")
     assert verify_chain(path) is False
+
+
+def test_concurrent_records_keep_the_chain_intact(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    log = AuditLog(path)
+    per_thread, thread_count = 50, 8
+    barrier = threading.Barrier(thread_count)
+
+    def record_many(worker: int) -> None:
+        barrier.wait()
+        for n in range(per_thread):
+            log.record(Event("tool_result", {"worker": worker, "n": n}))
+
+    threads = [threading.Thread(target=record_many, args=(w,)) for w in range(thread_count)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(log.events) == per_thread * thread_count
+    assert len(path.read_text(encoding="utf-8").splitlines()) == per_thread * thread_count
+    assert verify_chain(path)
+
+
+def test_tagged_log_forwards_events_with_tags_merged_into_data():
+    parent = AuditLog()
+    tagged = TaggedAuditLog(parent, subagent="r3")
+    original = Event("tool_call", {"name": "show", "input": {"command": "show version"}}, ts=7.5)
+
+    tagged.record(original)
+
+    (forwarded,) = parent.events
+    assert forwarded.type == "tool_call"
+    assert forwarded.ts == 7.5
+    assert forwarded.data == {
+        "name": "show",
+        "input": {"command": "show version"},
+        "subagent": "r3",
+    }
+    # The caller's event is not mutated.
+    assert original.data == {"name": "show", "input": {"command": "show version"}}
+
+
+def test_tagged_logs_from_two_children_share_one_chain(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    parent = AuditLog(path)
+    TaggedAuditLog(parent, subagent="r1").record(Event("llm_call", {"turn": 1}))
+    TaggedAuditLog(parent, subagent="r2").record(Event("llm_call", {"turn": 1}))
+
+    assert [e.data["subagent"] for e in parent.events] == ["r1", "r2"]
+    assert verify_chain(path)

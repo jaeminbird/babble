@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from pathlib import Path
 
 from faultline.types import Event
@@ -30,6 +31,8 @@ class AuditLog:
         self.path = path
         self.events: list[Event] = []
         self._prev = GENESIS
+        # Children of a parallel batch record concurrently. The lock keeps the chain and file in order.
+        self._lock = threading.Lock()
         if path is not None and path.exists():
             # Continue the chain from an existing file rather than starting a new one.
             last = _last_line(path)
@@ -37,18 +40,34 @@ class AuditLog:
                 self._prev = json.loads(last)["sha256"]
 
     def record(self, event: Event) -> None:
-        rec = event.to_dict()
-        rec["prev_sha256"] = self._prev
-        rec["sha256"] = _digest(rec)
-        if self.path is not None:
-            line = json.dumps(rec, sort_keys=True, separators=(",", ":"))
-            with open(self.path, "a", encoding="utf-8", newline="\n") as f:
-                f.write(line + "\n")
-        self._prev = rec["sha256"]
-        self.events.append(event)
+        with self._lock:
+            rec = event.to_dict()
+            rec["prev_sha256"] = self._prev
+            rec["sha256"] = _digest(rec)
+            if self.path is not None:
+                line = json.dumps(rec, sort_keys=True, separators=(",", ":"))
+                with open(self.path, "a", encoding="utf-8", newline="\n") as f:
+                    f.write(line + "\n")
+            self._prev = rec["sha256"]
+            self.events.append(event)
 
     def of_type(self, type: str) -> list[Event]:
         return [e for e in self.events if e.type == type]
+
+
+class TaggedAuditLog:
+    """Forwards each event to a parent AuditLog with `tags` merged into the event's data.
+
+    A subagent records through one of these, so its events land in the parent log tagged with
+    the subagent's name: TaggedAuditLog(parent, subagent="r3").
+    """
+
+    def __init__(self, parent: AuditLog, **tags: str) -> None:
+        self.parent = parent
+        self.tags = tags
+
+    def record(self, event: Event) -> None:
+        self.parent.record(Event(event.type, {**event.data, **self.tags}, event.ts))
 
 
 def verify_chain(path: Path) -> bool:
