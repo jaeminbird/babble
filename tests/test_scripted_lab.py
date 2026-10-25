@@ -198,9 +198,9 @@ def test_restore_unknown_device_raises():
 
 def test_ping_uses_pings_table_and_defaults_to_no_reply():
     lab = make_lab()
-    ok = lab.ping("ha", "172.16.0.10")
-    assert ok.ok is False
-    assert (ok.sent, ok.received) == (3, 0)
+    missing_reply = lab.ping("ha", "172.16.0.10")
+    assert missing_reply.ok is False
+    assert (missing_reply.sent, missing_reply.received) == (3, 0)
     assert lab.ping("ha", "192.168.9.9").ok is False  # missing entry
 
 
