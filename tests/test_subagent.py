@@ -62,7 +62,7 @@ def _tool(child_llm, lab=None, config=None, audit=None, accounting=None):
     audit = audit if audit is not None else AuditLog()
     accounting = accounting if accounting is not None else Accounting()
     config = config if config is not None else HarnessConfig()
-    tool = make_inspect_device_tool(child_llm, lab, TOPO, config, accounting, audit, AutoApprover())
+    tool = make_inspect_device_tool(child_llm, lab, TOPO, config, accounting, audit)
     return tool, lab, audit, accounting
 
 
@@ -283,7 +283,6 @@ def test_parent_inspects_two_routers_in_one_turn_then_submits_a_diagnosis():
         HarnessConfig(),
         accounting,
         audit,
-        AutoApprover(),
     )
     config = HarnessConfig()
     changes = ChangeManager(lab, [], config, audit)

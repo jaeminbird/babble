@@ -136,9 +136,7 @@ def assemble_agent(
         from babble.harness.subagent import make_inspect_device_tool
 
         extra_tools.append(
-            make_inspect_device_tool(
-                llm, lab, topology, harness_config, accounting, audit, approver
-            )
+            make_inspect_device_tool(llm, lab, topology, harness_config, accounting, audit)
         )
     if notes is not None:
         extra_tools.append(make_notes_tool(notes))

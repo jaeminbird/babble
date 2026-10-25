@@ -12,12 +12,11 @@ from typing import Any
 from babble.harness.accounting import Accounting
 from babble.harness.audit import AuditLog, TaggedAuditLog
 from babble.harness.loop import Agent, RunResult
-from babble.harness.policy import SafetyPolicy
+from babble.harness.policy import AutoDenier, SafetyPolicy
 from babble.harness.prompts import SUBAGENT_PROMPT
 from babble.lab.topology import Topology
 from babble.netops.tools import run_ping, run_show_command
 from babble.types import (
-    Approver,
     Event,
     HarnessConfig,
     LabBackend,
@@ -38,7 +37,6 @@ def make_inspect_device_tool(
     harness_config: HarnessConfig,
     accounting: Accounting,
     audit: AuditLog,
-    approver: Approver,
 ) -> ToolSpec:
     def handle(tool_input: dict[str, Any]) -> ToolResult:
         device = tool_input.get("device")
@@ -52,7 +50,7 @@ def make_inspect_device_tool(
             return ToolResult("Not run: question must be a non-empty string.", is_error=True)
 
         investigation = _investigate(
-            device, question, llm, lab, harness_config, accounting, audit, approver
+            device, question, llm, lab, harness_config, accounting, audit
         )
         audit.record(
             Event(
@@ -106,7 +104,6 @@ def _investigate(
     harness_config: HarnessConfig,
     accounting: Accounting,
     audit: AuditLog,
-    approver: Approver,
 ) -> RunResult:
     child_config = dataclasses.replace(
         harness_config,
@@ -122,7 +119,8 @@ def _investigate(
         tools=_child_tools(lab, device),
         config=child_config,
         policy=SafetyPolicy(enabled=harness_config.safety),
-        approver=approver,
+        # Child tools are never mutating, so this approver is only a fail-closed backstop.
+        approver=AutoDenier(),
         audit=TaggedAuditLog(audit, subagent=device),
         system_prompt=SUBAGENT_PROMPT,
         accounting=accounting,
