@@ -11,7 +11,8 @@ Every change follows the same path:
    the regression is reported.
 
 Kept changes push their snapshot onto a per-device undo stack, so `rollback` can undo them one
-at a time, newest first.
+at a time, newest first. A change whose automatic rollback failed is still on the device, so it
+goes on the stack too: `rollback` can retry the restore.
 """
 
 from __future__ import annotations
@@ -127,6 +128,7 @@ class ChangeManager:
 
         if checks_regressed_by_change and self.config.auto_rollback:
             restore_error = self._restore(device, snapshot)
+            index_of_recorded_change = len(self.changes)
             self.changes.append(
                 _change_record(
                     device,
@@ -138,6 +140,9 @@ class ChangeManager:
                 )
             )
             if restore_error is not None:
+                self._undo_stacks_by_device.setdefault(device, []).append(
+                    (snapshot, index_of_recorded_change)
+                )
                 self._record_rollback_failed(device, regressed_check_descriptions, restore_error)
                 return ToolResult(
                     f"Change on {device} broke {summarize(regressed_check_descriptions)}, and the "
