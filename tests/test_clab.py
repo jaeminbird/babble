@@ -8,7 +8,9 @@ from typing import Any
 import pytest
 
 from faultline.lab import clab
-from faultline.lab.clab import CommandRunner
+from faultline.lab.clab import RESTORE_FILE, ClabLab, CommandRunner
+from faultline.lab.topology import load_topology
+from faultline.types import LabError
 
 
 def completed(
@@ -91,3 +93,156 @@ def test_path_under_wsl_maps_drive_to_mnt() -> None:
 
 def test_path_under_wsl_keeps_posix_paths() -> None:
     assert CommandRunner(["wsl", "--"]).path(Path("/home/jae/lab.yml")) == "/home/jae/lab.yml"
+
+
+# ------------------------------------------------------------------------ ClabLab
+
+
+@pytest.fixture
+def topo():
+    return load_topology("metro")
+
+
+def make_lab(topo, handler=None) -> tuple[ClabLab, FakeRunner]:
+    runner = FakeRunner(handler)
+    return ClabLab(topo, runner), runner
+
+
+def test_devices_are_routers(topo) -> None:
+    lab, _ = make_lab(topo)
+    assert lab.devices() == ["r1", "r2", "r3", "ra", "rb", "rdc"]
+
+
+def test_unknown_device_raises(topo) -> None:
+    lab, runner = make_lab(topo)
+    with pytest.raises(LabError, match="unknown device"):
+        lab.show("nope", "show version")
+    assert runner.calls == []
+
+
+def test_show_runs_vtysh_in_container(topo) -> None:
+    lab, runner = make_lab(topo, lambda argv, _in: completed(argv, stdout="summary"))
+    out = lab.show("r1", "show ip bgp summary json")
+    assert out == "summary"
+    assert runner.calls == [
+        ["docker", "exec", "clab-metro-r1", "vtysh", "-c", "show ip bgp summary json"]
+    ]
+
+
+def test_show_rejects_non_show_commands(topo) -> None:
+    lab, runner = make_lab(topo)
+    with pytest.raises(LabError, match="read-only"):
+        lab.show("r1", "configure terminal")
+    assert runner.calls == []
+
+
+def test_show_nonzero_exit_raises_with_stderr(topo) -> None:
+    lab, _ = make_lab(topo, lambda argv, _in: completed(argv, rc=1, stderr="boom"))
+    with pytest.raises(LabError, match="boom"):
+        lab.show("r1", "show version")
+
+
+def test_configure_builds_argv_and_ends_configure_mode(topo) -> None:
+    lab, runner = make_lab(topo)
+    lab.configure("r2", ["router bgp 65000", " neighbor 10.255.0.3 remote-as 65000"])
+    assert runner.calls == [
+        [
+            "docker", "exec", "clab-metro-r2", "vtysh",
+            "-c", "configure terminal",
+            "-c", "router bgp 65000",
+            "-c", "neighbor 10.255.0.3 remote-as 65000",
+            "-c", "end",
+        ]
+    ]  # fmt: skip
+
+
+def test_configure_success_with_notes_is_not_an_error(topo) -> None:
+    notes = "% Configuration applied with notes:\n% No changes found to be committed!\n"
+    lab, _ = make_lab(topo, lambda argv, _in: completed(argv, rc=0, stdout=notes))
+    assert "No changes found" in lab.configure("r1", ["hostname r1"])
+
+
+def test_configure_nonzero_exit_raises_with_output(topo) -> None:
+    err = "% Unknown command: bogus\n"
+    lab, _ = make_lab(topo, lambda argv, _in: completed(argv, rc=1, stdout=err))
+    with pytest.raises(LabError, match="Unknown command"):
+        lab.configure("r1", ["bogus"])
+
+
+def test_snapshot_strips_header_before_frr_version(topo) -> None:
+    raw = (
+        "Building configuration...\n\nCurrent configuration:\n!\n"
+        "frr version 10.7.1\nfrr defaults traditional\nhostname r1\n!\nend\n"
+    )
+    lab, runner = make_lab(topo, lambda argv, _in: completed(argv, stdout=raw))
+    snap = lab.snapshot("r1")
+    assert snap.startswith("frr version 10.7.1\n")
+    assert "Building configuration" not in snap
+    assert runner.calls[0] == [
+        "docker", "exec", "clab-metro-r1", "vtysh", "-c", "show running-config",
+    ]  # fmt: skip
+
+
+def test_snapshot_without_header_returns_output_unchanged(topo) -> None:
+    lab, _ = make_lab(topo, lambda argv, _in: completed(argv, stdout="hostname r1\n"))
+    assert lab.snapshot("r1") == "hostname r1\n"
+
+
+def test_restore_writes_file_then_reloads(topo) -> None:
+    lab, runner = make_lab(topo)
+    lab.restore("r3", "frr version 10.7.1\nhostname r3\n")
+    assert runner.calls == [
+        ["docker", "exec", "clab-metro-r3", "sh", "-c", f"cat > {RESTORE_FILE}"],
+        [
+            "docker", "exec", "clab-metro-r3",
+            "/usr/lib/frr/frr-reload.py", "--reload", RESTORE_FILE,
+        ],
+    ]  # fmt: skip
+    assert runner.inputs[0] == "frr version 10.7.1\nhostname r3\n"
+
+
+def test_restore_stops_if_write_fails(topo) -> None:
+    lab, runner = make_lab(topo, lambda argv, _in: completed(argv, rc=1, stderr="no space"))
+    with pytest.raises(LabError, match="no space"):
+        lab.restore("r3", "x")
+    assert len(runner.calls) == 1
+
+
+def test_ping_parses_statistics(topo) -> None:
+    out = "3 packets transmitted, 3 packets received, 0% packet loss\n"
+    lab, runner = make_lab(topo, lambda argv, _in: completed(argv, stdout=out))
+    result = lab.ping("ha", "172.16.0.10")
+    assert (result.sent, result.received, result.ok) == (3, 3, True)
+    assert runner.calls[0] == [
+        "docker", "exec", "clab-metro-ha",
+        "ping", "-c", "3", "-W", "1", "-i", "0.2", "172.16.0.10",
+    ]  # fmt: skip
+
+
+def test_ping_loss_is_a_result_not_an_error(topo) -> None:
+    out = "3 packets transmitted, 0 received, 100% packet loss\n"
+    lab, _ = make_lab(topo, lambda argv, _in: completed(argv, rc=1, stdout=out))
+    result = lab.ping("ha", "192.168.2.10")
+    assert (result.sent, result.received, result.ok) == (3, 0, False)
+
+
+def test_ping_without_statistics_raises(topo) -> None:
+    lab, _ = make_lab(topo, lambda argv, _in: completed(argv, rc=2, stderr="unknown host"))
+    with pytest.raises(LabError, match="unknown host"):
+        lab.ping("ha", "not-a-host")
+
+
+def test_host_exec_runs_raw_argv(topo) -> None:
+    lab, runner = make_lab(topo, lambda argv, _in: completed(argv, stdout="eth1 UP"))
+    assert lab.host_exec("ha", ["ip", "-br", "link"]) == "eth1 UP"
+    assert runner.calls == [["docker", "exec", "clab-metro-ha", "ip", "-br", "link"]]
+
+
+def test_docker_missing_becomes_lab_error(topo) -> None:
+    class Broken(CommandRunner):
+        def run(self, argv, input=None, timeout=60):
+            raise FileNotFoundError("docker")
+
+    lab = ClabLab(topo, Broken())
+    with pytest.raises(LabError, match="could not run"):
+        lab.show("r1", "show version")
