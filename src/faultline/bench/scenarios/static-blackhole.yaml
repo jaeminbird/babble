@@ -1,0 +1,15 @@
+id: static-blackhole
+title: Core router r1 has a static null route for the data center prefix
+topology: metro
+difficulty: medium
+fixable: true
+alert: >
+  Users at site A (192.168.1.0/24) time out when connecting to the data center
+  server 172.16.0.10. Site B reaches it normally.
+inject:
+  - device: r1
+    config:
+      - ip route 172.16.0.0/24 Null0
+checks:
+  - {kind: ping, device: ha, target: 172.16.0.10}
+root_cause: {device: r1, category: static_route}

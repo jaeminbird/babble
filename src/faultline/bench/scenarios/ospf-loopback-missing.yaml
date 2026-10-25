@@ -1,0 +1,21 @@
+id: ospf-loopback-missing
+title: Core router r3 stops advertising its loopback in OSPF, breaking iBGP to it
+topology: metro
+difficulty: hard
+fixable: true
+alert: >
+  Users at both sites cannot reach the data center server 172.16.0.10.
+  Traffic between site A and site B still works.
+inject:
+  - device: r3
+    config:
+      - router ospf
+      - no network 10.255.0.3/32 area 0
+checks:
+  - {kind: ping, device: ha, target: 172.16.0.10}
+  - {kind: ping, device: hb, target: 172.16.0.10}
+  - {kind: bgp_established, device: r1, target: 10.255.0.3}
+  - {kind: bgp_established, device: r2, target: 10.255.0.3}
+  - {kind: bgp_established, device: r3, target: 10.255.0.1}
+  - {kind: bgp_established, device: r3, target: 10.255.0.2}
+root_cause: {device: r3, category: ospf_misconfig}

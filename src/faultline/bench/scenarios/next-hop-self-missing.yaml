@@ -1,0 +1,19 @@
+id: next-hop-self-missing
+title: Core router r3 stopped setting next-hop-self for its iBGP peer r1
+topology: metro
+difficulty: hard
+fixable: true
+alert: >
+  Users at site A cannot reach the data center server 172.16.0.10.
+  Site B reaches it normally.
+inject:
+  - device: r3
+    config:
+      - router bgp 65000
+      - address-family ipv4 unicast
+      - no neighbor 10.255.0.1 next-hop-self
+      - exit-address-family
+checks:
+  - {kind: ping, device: ha, target: 172.16.0.10}
+  - {kind: route_present, device: r1, target: 172.16.0.0/24}
+root_cause: {device: r3, category: bgp_neighbor_misconfig}
