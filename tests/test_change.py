@@ -16,9 +16,9 @@ class CountingLab(ScriptedLab):
         super().__init__(*args, **kwargs)
         self.pings = 0
 
-    def ping(self, device, target, count=3):
+    def ping(self, device, target):
         self.pings += 1
-        return super().ping(device, target, count)
+        return super().ping(device, target)
 
 
 class PartialFailLab(ScriptedLab):
@@ -365,12 +365,12 @@ class SlowRegressionLab(ScriptedLab):
         self.change_applied = False
         return super().restore(device, config)
 
-    def ping(self, device, target, count=3):
+    def ping(self, device, target):
         if self.change_applied and device == "hb":
             self.site_b_pings_after_change += 1
             if self.site_b_pings_after_change >= 3:
-                return super().ping(device, "unreachable", count)
-        return super().ping(device, target, count)
+                return super().ping(device, "unreachable")
+        return super().ping(device, target)
 
 
 def test_regression_that_appears_after_the_change_is_caught_and_rolled_back():

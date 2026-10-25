@@ -41,7 +41,7 @@ import json
 from collections.abc import Mapping
 from typing import Any, TypeVar
 
-from babble.types import LabError, PingResult
+from babble.types import PING_PACKET_COUNT, LabError, PingResult
 
 _TableValue = TypeVar("_TableValue")
 
@@ -182,18 +182,18 @@ class ScriptedLab:
             raise LabError(f"not a snapshot for {device}")
         self._applied_config_lines[device] = [str(line) for line in parsed_snapshot["applied"]]
 
-    def ping(self, device: str, target: str, count: int = 3) -> PingResult:
+    def ping(self, device: str, target: str) -> PingResult:
         self._require_device(device)
         key = (device, _normalize_whitespace(target))
         # A missing entry means no reply.
         reply_received = bool(
             self._lookup_for_current_state(self._fixed_ping_results, self._broken_ping_results, key)
         )
-        received = count if reply_received else 0
+        received = PING_PACKET_COUNT if reply_received else 0
         return PingResult(
-            sent=count,
+            sent=PING_PACKET_COUNT,
             received=received,
-            output=f"{count} packets transmitted, {received} received",
+            output=f"{PING_PACKET_COUNT} packets transmitted, {received} received",
         )
 
     def host_exec(self, device: str, argv: list[str]) -> str:

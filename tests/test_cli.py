@@ -28,8 +28,8 @@ class HealthyLab(ScriptedLab):
     def __init__(self) -> None:
         super().__init__(devices=list(TOPOLOGY.devices), responses={}, hosts=set(TOPOLOGY.hosts()))
 
-    def ping(self, device: str, target: str, count: int = 3) -> PingResult:
-        return PingResult(sent=count, received=count, output="")
+    def ping(self, device: str, target: str) -> PingResult:
+        return PingResult(sent=3, received=3, output="")
 
     def show(self, device: str, command: str) -> str:
         # "show bgp neighbors <peer> json"

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from babble.lab.topology import Topology
 from babble.polling import poll_until
-from babble.types import Check, LabBackend, LabError, PingResult
+from babble.types import PING_PACKET_COUNT, Check, LabBackend, LabError, PingResult
 
 # Decides whether one health check passes on a running lab. Matches the shape of
 # babble.netops.checks.evaluate.
@@ -149,10 +149,12 @@ class ClabLab:
         self._exec_in_container(device, ["tee", RESTORE_FILE], stdin_text=config)
         self._exec_in_container(device, ["/usr/lib/frr/frr-reload.py", "--reload", RESTORE_FILE])
 
-    def ping(self, device: str, target: str, count: int = 3) -> PingResult:
+    def ping(self, device: str, target: str) -> PingResult:
         # Loss is not an error: ping exits non-zero when packets are lost.
-        argv = ["ping", "-c", str(count), "-W", "1", "-i", "0.2", target]
-        completed_process = self._run_in_container(device, argv, timeout=count * 2 + 10)
+        argv = ["ping", "-c", str(PING_PACKET_COUNT), "-W", "1", "-i", "0.2", target]
+        completed_process = self._run_in_container(
+            device, argv, timeout=PING_PACKET_COUNT * 2 + 10
+        )
         output = completed_process.stdout + completed_process.stderr
         statistics_match = _PING_STATISTICS.search(output)
         if statistics_match is None:

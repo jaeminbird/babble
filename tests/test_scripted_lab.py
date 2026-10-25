@@ -207,10 +207,10 @@ def test_ping_uses_pings_table_and_defaults_to_no_reply():
 def test_ping_switches_to_fixed_table_when_fixed():
     lab = make_lab()
     lab.configure("r1", ["ip route 172.16.0.0/24 10.0.13.2"])
-    result = lab.ping("ha", "172.16.0.10", count=5)
+    result = lab.ping("ha", "172.16.0.10")
     assert result.ok is True
-    assert (result.sent, result.received) == (5, 5)
-    assert "5 packets transmitted" in result.output
+    assert (result.sent, result.received) == (3, 3)
+    assert "3 packets transmitted" in result.output
 
 
 def test_ping_from_router_uses_pings_table():

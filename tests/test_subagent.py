@@ -31,9 +31,9 @@ class RecordingLab(ScriptedLab):
         self.show_calls.append((device, command))
         return super().show(device, command)
 
-    def ping(self, device: str, target: str, count: int = 3) -> PingResult:
+    def ping(self, device: str, target: str) -> PingResult:
         self.ping_calls.append((device, target))
-        return super().ping(device, target, count)
+        return super().ping(device, target)
 
 
 def _lab() -> RecordingLab:

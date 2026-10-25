@@ -96,12 +96,12 @@ class FaultLab(ScriptedLab):
             raise LabError(f"unknown host action {action!r}")
         return ""
 
-    def ping(self, device, target, count=3):
-        received = count if self._reachable(device, target) else 0
+    def ping(self, device, target):
+        received = 3 if self._reachable(device, target) else 0
         return PingResult(
-            sent=count,
+            sent=3,
             received=received,
-            output=f"{count} packets transmitted, {received} received",
+            output=f"3 packets transmitted, {received} received",
         )
 
     def _reachable(self, device, target):
