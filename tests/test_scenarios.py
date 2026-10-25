@@ -366,6 +366,18 @@ def test_load_all_on_a_directory_with_a_bad_file_names_the_file(tmp_path: Path) 
         load_all(tmp_path)
 
 
+def test_load_all_rejects_two_files_declaring_the_same_id(tmp_path: Path) -> None:
+    _load_raw(tmp_path, _base(), name="first.yaml")
+    _load_raw(tmp_path, _base(), name="second.yaml")
+    with pytest.raises(ValueError, match="duplicate scenario ids.*bad"):
+        load_all(tmp_path)
+
+
+def test_load_all_rejects_a_missing_directory(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="does not exist"):
+        load_all(tmp_path / "nowhere")
+
+
 def test_no_fault_may_have_an_empty_root_device(tmp_path: Path) -> None:
     data = _base()
     data["root_cause"] = {"device": "", "category": "no_fault"}

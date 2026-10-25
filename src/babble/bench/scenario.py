@@ -19,7 +19,7 @@ SCENARIOS_DIR = Path(__file__).resolve().parent / "scenarios"
 DIFFICULTIES = ("easy", "medium", "hard")
 CHECK_KINDS: tuple[str, ...] = get_args(CheckKind)
 
-_SCENARIO_KEYS = {
+_TOP_LEVEL_KEYS = {
     "id",
     "title",
     "topology",
@@ -30,8 +30,8 @@ _SCENARIO_KEYS = {
     "checks",
     "root_cause",
 }
-_STEP_KEYS = {"device", "config", "host", "revert"}
-_CHECK_KEYS = {"kind", "device", "target"}
+_INJECT_STEP_KEYS = {"device", "config", "host", "revert"}
+_SCENARIO_CHECK_KEYS = {"kind", "device", "target"}
 _ROOT_CAUSE_KEYS = {"device", "category"}
 
 
@@ -68,54 +68,59 @@ class Scenario:
 def load_scenario(path: Path | str) -> Scenario:
     """Parse and validate one scenario file. Raises ValueError naming the file and the problem."""
     path = Path(path)
-    name = path.name
+    file_name = path.name
 
-    def fail(problem: str) -> ValueError:
-        return ValueError(f"{name}: {problem}")
+    def build_error(problem: str) -> ValueError:
+        return ValueError(f"{file_name}: {problem}")
 
     try:
         data: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
-        raise fail(f"cannot read YAML: {exc}") from exc
+        raise build_error(f"cannot read YAML: {exc}") from exc
     if not isinstance(data, dict):
-        raise fail("top level must be a mapping")
+        raise build_error("top level must be a mapping")
 
-    missing = _SCENARIO_KEYS - data.keys()
+    missing = _TOP_LEVEL_KEYS - data.keys()
     if missing:
-        raise fail(f"missing keys: {sorted(missing)}")
-    unknown = data.keys() - _SCENARIO_KEYS
+        raise build_error(f"missing keys: {sorted(missing)}")
+    unknown = data.keys() - _TOP_LEVEL_KEYS
     if unknown:
-        raise fail(f"unknown keys: {sorted(unknown)}")
+        raise build_error(f"unknown keys: {sorted(unknown)}")
 
-    scenario_id = _str(data, "id", fail)
-    title = _str(data, "title", fail)
-    topology = _str(data, "topology", fail)
-    alert = _str(data, "alert", fail)
+    scenario_id = _required_string(data, "id", build_error)
+    title = _required_string(data, "title", build_error)
+    topology = _required_string(data, "topology", build_error)
+    alert = _required_string(data, "alert", build_error)
 
-    difficulty = _str(data, "difficulty", fail)
+    difficulty = _required_string(data, "difficulty", build_error)
     if difficulty not in DIFFICULTIES:
-        raise fail(f"difficulty {difficulty!r} must be one of {DIFFICULTIES}")
+        raise build_error(f"difficulty {difficulty!r} must be one of {DIFFICULTIES}")
 
     fixable = data["fixable"]
     if not isinstance(fixable, bool):
-        raise fail("fixable must be true or false")
+        raise build_error("fixable must be true or false")
 
-    inject = [_load_step(step, fail) for step in _list(data, "inject", fail)]
-    checks = [_load_check(check, fail) for check in _list(data, "checks", fail)]
+    inject_steps = [
+        _load_inject_step(step, build_error) for step in _required_list(data, "inject", build_error)
+    ]
+    scenario_checks = [
+        _load_scenario_check(check, build_error)
+        for check in _required_list(data, "checks", build_error)
+    ]
 
-    root = data["root_cause"]
-    if not isinstance(root, dict):
-        raise fail("root_cause must be a mapping")
-    if set(root) != _ROOT_CAUSE_KEYS:
-        raise fail(f"root_cause keys must be exactly {sorted(_ROOT_CAUSE_KEYS)}")
-    category = _str(root, "category", fail)
+    root_cause_data = data["root_cause"]
+    if not isinstance(root_cause_data, dict):
+        raise build_error("root_cause must be a mapping")
+    if set(root_cause_data) != _ROOT_CAUSE_KEYS:
+        raise build_error(f"root_cause keys must be exactly {sorted(_ROOT_CAUSE_KEYS)}")
+    category = _required_string(root_cause_data, "category", build_error)
     if category not in FAULT_CATEGORIES:
-        raise fail(f"root_cause category {category!r} is not one of {FAULT_CATEGORIES}")
-    root_device = root["device"]
+        raise build_error(f"root_cause category {category!r} is not one of {FAULT_CATEGORIES}")
+    root_device = root_cause_data["device"]
     if not isinstance(root_device, str):
-        raise fail("root_cause device must be a string")
+        raise build_error("root_cause device must be a string")
     if not root_device and category != "no_fault":
-        raise fail("root_cause device may be empty only for category no_fault")
+        raise build_error("root_cause device may be empty only for category no_fault")
 
     return Scenario(
         id=scenario_id,
@@ -123,79 +128,88 @@ def load_scenario(path: Path | str) -> Scenario:
         topology=topology,
         difficulty=difficulty,
         alert=alert,
-        inject=inject,
-        checks=checks,
+        inject=inject_steps,
+        checks=scenario_checks,
         root_cause=RootCause(device=root_device, category=category),
         fixable=fixable,
     )
 
 
 def load_all(dir: Path | str | None = None) -> list[Scenario]:
-    """Every *.yaml scenario in `dir` (default: the bundled scenarios), sorted by id."""
-    root = Path(dir) if dir is not None else SCENARIOS_DIR
-    scenarios = [load_scenario(p) for p in sorted(root.glob("*.yaml"))]
+    """Every *.yaml scenario in `dir` (default: the bundled scenarios), sorted by id. Raises if the
+    directory is missing or two files declare the same id."""
+    scenarios_dir = Path(dir) if dir is not None else SCENARIOS_DIR
+    if not scenarios_dir.is_dir():
+        raise ValueError(f"scenarios directory does not exist: {scenarios_dir}")
+    scenarios = [load_scenario(p) for p in sorted(scenarios_dir.glob("*.yaml"))]
+    ids = [scenario.id for scenario in scenarios]
+    duplicate_ids = sorted({scenario_id for scenario_id in ids if ids.count(scenario_id) > 1})
+    if duplicate_ids:
+        raise ValueError(f"duplicate scenario ids in {scenarios_dir}: {', '.join(duplicate_ids)}")
     return sorted(scenarios, key=lambda s: s.id)
 
 
-def _load_step(raw: Any, fail: Failer) -> InjectStep:
+def _load_inject_step(raw: Any, build_error: Failer) -> InjectStep:
     if not isinstance(raw, dict):
-        raise fail("each inject step must be a mapping")
-    unknown = raw.keys() - _STEP_KEYS
+        raise build_error("each inject step must be a mapping")
+    unknown = raw.keys() - _INJECT_STEP_KEYS
     if unknown:
-        raise fail(f"inject step has unknown keys: {sorted(unknown)}")
-    device = _str(raw, "device", fail)
-    config = _opt_list(raw, "config", fail)
-    host = _opt_list(raw, "host", fail)
-    revert = _opt_list(raw, "revert", fail)
+        raise build_error(f"inject step has unknown keys: {sorted(unknown)}")
+    device = _required_string(raw, "device", build_error)
+    config = _optional_string_list(raw, "config", build_error)
+    host = _optional_string_list(raw, "host", build_error)
+    revert = _optional_string_list(raw, "revert", build_error)
     if (config is None) == (host is None):
-        raise fail(f"inject step on {device} needs exactly one of config or host")
+        raise build_error(f"inject step on {device} needs exactly one of config or host")
     if revert is not None and host is None:
-        raise fail(f"revert is only allowed with host, not config (step on {device})")
+        raise build_error(f"revert is only allowed with host, not config (step on {device})")
     if host is not None and not host:
-        raise fail(f"host argv on {device} must not be empty")
+        raise build_error(f"host argv on {device} must not be empty")
     return InjectStep(device=device, config=config, host=host, revert=revert)
 
 
-def _load_check(raw: Any, fail: Failer) -> Check:
+def _load_scenario_check(raw: Any, build_error: Failer) -> Check:
     if not isinstance(raw, dict):
-        raise fail("each check must be a mapping")
-    if set(raw) != _CHECK_KEYS:
-        raise fail(f"check keys must be exactly {sorted(_CHECK_KEYS)}, got {sorted(raw)}")
-    kind = _str(raw, "kind", fail)
+        raise build_error("each check must be a mapping")
+    if set(raw) != _SCENARIO_CHECK_KEYS:
+        raise build_error(
+            f"check keys must be exactly {sorted(_SCENARIO_CHECK_KEYS)}, got {sorted(raw)}"
+        )
+    kind = _required_string(raw, "kind", build_error)
     if kind not in CHECK_KINDS:
-        raise fail(f"check kind {kind!r} is not one of {CHECK_KINDS}")
-    device = _str(raw, "device", fail)
-    target = _str(raw, "target", fail)
+        raise build_error(f"check kind {kind!r} is not one of {CHECK_KINDS}")
+    device = _required_string(raw, "device", build_error)
+    target = _required_string(raw, "target", build_error)
     try:
         if kind == "route_present":
             ipaddress.ip_network(target, strict=True)
         else:
             ipaddress.ip_address(target)
     except ValueError as exc:
-        raise fail(f"check target {target!r} is not a valid address for {kind}") from exc
+        raise build_error(f"check target {target!r} is not a valid address for {kind}") from exc
     return Check(kind=kind, device=device, target=target)  # type: ignore[arg-type]
 
 
-def _str(data: dict[str, Any], key: str, fail: Failer) -> str:
+def _required_string(data: dict[str, Any], key: str, build_error: Failer) -> str:
     value = data.get(key)
     if not isinstance(value, str) or not value.strip():
-        raise fail(f"{key} must be a non-empty string")
+        raise build_error(f"{key} must be a non-empty string")
     return value
 
 
-def _list(data: dict[str, Any], key: str, fail: Failer) -> list[Any]:
+def _required_list(data: dict[str, Any], key: str, build_error: Failer) -> list[Any]:
     value = data.get(key)
     if not isinstance(value, list):
-        raise fail(f"{key} must be a list")
+        raise build_error(f"{key} must be a list")
     return value
 
 
-def _opt_list(data: dict[str, Any], key: str, fail: Failer) -> list[str] | None:
+def _optional_string_list(data: dict[str, Any], key: str, build_error: Failer) -> list[str] | None:
     if key not in data:
         return None
     value = data[key]
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-        raise fail(f"{key} must be a list of strings")
+        raise build_error(f"{key} must be a list of strings")
     return list(value)
 
 
