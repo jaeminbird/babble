@@ -78,7 +78,9 @@ class FakeLLMClient:
 _fake_tool_use_numbers = itertools.count(1)
 
 
-def tool_use(name: str, tool_input: dict[str, Any], tool_use_id: str | None = None) -> dict[str, Any]:
+def tool_use(
+    name: str, tool_input: dict[str, Any], tool_use_id: str | None = None
+) -> dict[str, Any]:
     """A tool_use content block for a scripted response."""
     return {
         "type": "tool_use",

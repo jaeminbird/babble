@@ -60,7 +60,9 @@ def build_tools(
             input_schema=object_schema(
                 {
                     "device": string_property("Router name, e.g. r1."),
-                    "command": string_property("A show command, e.g. 'show bgp neighbors 10.1.0.2 json'."),
+                    "command": string_property(
+                        "A show command, e.g. 'show bgp neighbors 10.1.0.2 json'."
+                    ),
                 }
             ),
             handler=_report_lab_errors_as_results(_make_show_handler(lab, topology)),
@@ -98,7 +100,9 @@ def build_tools(
                         "minItems": 1,
                         "description": "Config-mode lines, in order.",
                     },
-                    "rationale": string_property("Why this change fixes the fault, in one sentence."),
+                    "rationale": string_property(
+                        "Why this change fixes the fault, in one sentence."
+                    ),
                 }
             ),
             handler=_report_lab_errors_as_results(
@@ -113,7 +117,9 @@ def build_tools(
                 "Undo the most recent kept change on one router, restoring the config it "
                 "replaced. Use it only when a change you made is wrong and must be reverted."
             ),
-            input_schema=object_schema({"device": string_property("Router to roll back, e.g. r3.")}),
+            input_schema=object_schema(
+                {"device": string_property("Router to roll back, e.g. r3.")}
+            ),
             handler=_report_lab_errors_as_results(
                 _make_rollback_handler(lab, topology, change_manager)
             ),
@@ -270,7 +276,9 @@ def _submit_diagnosis_spec() -> ToolSpec:
                 "evidence": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "The command outputs or observations that support the diagnosis.",
+                    "description": (
+                        "The command outputs or observations that support the diagnosis."
+                    ),
                 },
                 "fix_applied": {"type": "boolean"},
             },

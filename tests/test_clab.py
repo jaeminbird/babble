@@ -164,7 +164,8 @@ def test_configure_success_with_notes_is_not_an_error(topo) -> None:
 
 def test_configure_nonzero_exit_raises_with_output(topo) -> None:
     unknown_command_output = "% Unknown command: bogus\n"
-    failing = lambda argv, _stdin: completed(argv, rc=1, stdout=unknown_command_output)
+    def failing(argv, _stdin):
+        return completed(argv, rc=1, stdout=unknown_command_output)
     lab, _ = make_lab(topo, failing)
     with pytest.raises(LabError, match="Unknown command"):
         lab.configure("r1", ["bogus"])

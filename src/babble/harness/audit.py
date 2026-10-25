@@ -34,7 +34,8 @@ class AuditLog:
         self.path = path
         self.events: list[Event] = []
         self._previous_sha256 = GENESIS
-        # Children of a parallel batch record concurrently. The lock keeps the chain and file in order.
+        # Children of a parallel batch record concurrently. The lock keeps the chain and file
+        # in order.
         self._lock = threading.Lock()
         if path is not None and path.exists():
             # Continue the chain from an existing file rather than starting a new one.

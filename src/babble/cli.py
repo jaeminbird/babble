@@ -77,7 +77,8 @@ def validated_preset_names(preset_names: list[str]) -> list[str]:
     unknown = [name for name in preset_names if name not in PRESETS]
     if unknown:
         raise UsageError(
-            f"unknown harness_config_for_preset(s): {', '.join(unknown)}; valid presets: {', '.join(PRESETS)}"
+            f"unknown harness_config_for_preset(s): {', '.join(unknown)}; "
+            f"valid presets: {', '.join(PRESETS)}"
         )
     return preset_names
 
@@ -175,7 +176,9 @@ def command_run(args: argparse.Namespace) -> int:
 
 def command_bench(args: argparse.Namespace) -> int:
     scenarios = (
-        load_all() if args.scenarios == "all" else scenarios_for_ids(split_comma_list(args.scenarios))
+        load_all()
+        if args.scenarios == "all"
+        else scenarios_for_ids(split_comma_list(args.scenarios))
     )
     preset_names = validated_preset_names(split_comma_list(args.presets))
     output_directory = Path(args.output_directory or default_output_directory())

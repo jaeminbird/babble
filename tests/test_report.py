@@ -208,7 +208,7 @@ def test_markdown_table_says_so_when_there_are_no_rows():
     assert render_markdown_table([]) == "(no results)"
 
 
-def test_per_scenario_table_counts_solved_over_trials_per_preset():
+def test_solved_counts_by_scenario_table():
     results = [
         {"scenario_id": "a", "preset_name": "full", "solved": True},
         {"scenario_id": "a", "preset_name": "full", "solved": False},

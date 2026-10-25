@@ -65,7 +65,8 @@ class ChangeManager:
         # regressions}. A failed automatic rollback leaves the change on the device, so it is
         # recorded with rolled_back False and rollback_failed True.
         self.change_records: list[dict[str, Any]] = []
-        # Per device, (snapshot taken before a kept change, index into self.change_records), oldest first.
+        # Per device, (snapshot taken before a kept change, index into self.change_records),
+        # oldest first.
         self._undo_stacks_by_device: dict[str, list[tuple[str, int]]] = {}
 
     # ----------------------------------------------------------------- apply
@@ -144,7 +145,8 @@ class ChangeManager:
                 )
                 self._record_rollback_failed(device, regressed_check_descriptions, restore_error)
                 return ToolResult(
-                    f"Change on {device} broke {_summarize_check_list(regressed_check_descriptions)}, and the "
+                    f"Change on {device} broke "
+                    f"{_summarize_check_list(regressed_check_descriptions)}, and the "
                     f"automatic rollback failed: {restore_error}. Check the device before doing "
                     "anything else.",
                     is_error=True,
@@ -222,7 +224,8 @@ class ChangeManager:
         if checks_regressed_by_change:
             regressed_names = [check.describe() for check in checks_regressed_by_change]
             result_text += (
-                f" Regressed, kept because auto_rollback is off: {_summarize_check_list(regressed_names)}."
+                f" Regressed, kept because auto_rollback is off: "
+                f"{_summarize_check_list(regressed_names)}."
             )
         still_failing = [
             check.describe() for check in self.checks if not checks_passing_after_change.get(check)
@@ -265,7 +268,9 @@ class ChangeManager:
             Event("rollback", {"device": device, "reason": reason, "regressions": regressions})
         )
 
-    def _record_rollback_failed(self, device: str, regressions: list[str], restore_error: str) -> None:
+    def _record_rollback_failed(
+        self, device: str, regressions: list[str], restore_error: str
+    ) -> None:
         self.audit.record(
             Event(
                 "rollback_failed",

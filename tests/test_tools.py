@@ -32,7 +32,9 @@ def make_lab(lab_cls=ScriptedLab, **overrides):
     return lab_cls(**kwargs)
 
 
-def make_tools_with_lab(lab_cls=ScriptedLab, checks=(DC_PING,), extra_tools=(), config=None, **overrides):
+def make_tools_with_lab(
+    lab_cls=ScriptedLab, checks=(DC_PING,), extra_tools=(), config=None, **overrides
+):
     lab = make_lab(lab_cls, **overrides)
     audit = AuditLog()
     config = config or HarnessConfig()

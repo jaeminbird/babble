@@ -178,7 +178,8 @@ class LabBackend(Protocol):
     def ping(self, device: str, target: str) -> PingResult: ...
 
     def host_exec(self, device: str, argv: list[str]) -> str:
-        """Run a raw command in the device container. Bench-only (fault injection), never an agent tool."""
+        """Run a raw command in the device container. Bench-only (fault injection), never an
+        agent tool."""
         ...
 
 

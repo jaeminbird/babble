@@ -139,8 +139,9 @@ def load_scenario(path: Path | str) -> Scenario:
 
 
 def load_all(scenarios_directory: Path | str | None = None) -> list[Scenario]:
-    """Every *.yaml scenario in `scenarios_directory` (default: the bundled scenarios), sorted by id. Raises if the
-    directory is missing. Ids are unique because each must match its file name."""
+    """Every *.yaml scenario in `scenarios_directory` (default: the bundled scenarios), sorted
+    by id. Raises if the directory is missing. Ids are unique because each must match its file
+    name."""
     scenarios_dir = Path(scenarios_directory) if scenarios_directory is not None else SCENARIOS_DIR
     if not scenarios_dir.is_dir():
         raise ValueError(f"scenarios directory does not exist: {scenarios_dir}")

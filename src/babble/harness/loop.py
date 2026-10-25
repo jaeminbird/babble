@@ -319,7 +319,8 @@ class _Run:
                 parsed_diagnosis = Diagnosis.from_tool_input(call.input)
             except ValueError as problem:
                 result = ToolResult(
-                    f"Diagnosis not recorded: {problem}. Call {SUBMIT_TOOL} again with every field.",
+                    f"Diagnosis not recorded: {problem}. "
+                    f"Call {SUBMIT_TOOL} again with every field.",
                     is_error=True,
                 )
         result = self._apply_post_hooks_truncate_and_audit(call, result)
