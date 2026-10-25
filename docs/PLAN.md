@@ -157,6 +157,13 @@ Each package is one branch, built in its own git worktree, by one implementer. W
   - `class LabManager(topology, runner)`: `deploy()` = `containerlab deploy -t <path> --reconfigure`; `destroy()` = `containerlab destroy -t <path> --cleanup`; `wait_healthy(timeout=120)` polls `topology.health_checks` via `checks.evaluate` if available (import lazily; until W1-C merges, accept a callable); `take_baseline()` snapshots every router; `reset()` restores every router to baseline.
 - Tests: topology loads and is self-consistent (every link endpoint is a device, every config file exists, each router config contains its loopback), ClabLab argv construction and output parsing with a fake runner, WSL path conversion.
 
+**Verified live against `frr:containerlab-10.7.1` (2026-10-25)**
+- bgpd and ospfd run by default under the `frr` kind. `/usr/lib/frr/frr-reload.py`, python3, `tc`, `ping` and `traceroute` are in the image.
+- vtysh exit code is the error signal: 0 on success, even when the output contains "% Configuration applied with notes"; 1 on "% Unknown command" or "% Command incomplete".
+- `show running-config` starts with a "Building configuration..." header that frr-reload.py rejects. Snapshots strip everything before the `frr version` line; restoring that through `frr-reload.py --reload` works.
+- On a broadcast /30, OSPF sat in 2-Way for 40s+. Core links use `ip ospf network point-to-point`.
+- JSON shapes match the ones in W1-C (`bgpState`, route list keyed by prefix, `{}` when absent, `neighbors` -> list with `nbrState` like "Full/DR", escaped as `Full\/DR` in the raw text).
+
 ### Wave 2
 
 **W2-E `feat/agent-loop`**: `harness/loop.py`, `harness/accounting.py`, `harness/truncate.py`, `harness/prompts.py`, tests
