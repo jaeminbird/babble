@@ -136,7 +136,7 @@ alert --> agent loop (raw Messages API, append-only history)
           hash-chained audit log: every model call, tool call, approval, change and rollback
 ```
 
-- **The raw API, no framework.** The loop is about 400 lines, so every harness feature can be switched off and measured.
+- **The raw API, no framework.** The loop is about 440 lines, so every harness feature can be switched off and measured.
 - **Append-only history.** Assistant turns go back exactly as returned, tool output is truncated before it enters history, and compaction starts a fresh conversation. That keeps preserved thinking valid and the prompt cache warm.
 - **Offline tests.** 509 tests run against a scripted lab and a scripted model, with no Docker or API key; every loop test asserts that history was never edited.
 
