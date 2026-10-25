@@ -1,0 +1,21 @@
+id: bgp-outbound-filter
+title: Site A edge filters out all of its routes toward the core
+topology: metro
+difficulty: medium
+fixable: true
+alert: >
+  Users at site A (192.168.1.0/24) cannot reach the data center server 172.16.0.10.
+  Site B and the data center are unaffected.
+inject:
+  - device: ra
+    config:
+      - route-map DENY-ALL deny 10
+      - exit
+      - router bgp 65001
+      - address-family ipv4 unicast
+      - neighbor 10.1.0.1 route-map DENY-ALL out
+      - exit-address-family
+checks:
+  - {kind: ping, device: ha, target: 172.16.0.10}
+  - {kind: route_present, device: r1, target: 192.168.1.0/24}
+root_cause: {device: ra, category: bgp_policy}

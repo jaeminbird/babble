@@ -1,0 +1,18 @@
+id: bgp-wrong-remote-as
+title: Site B edge has the wrong remote AS for its core neighbor
+topology: metro
+difficulty: easy
+fixable: true
+alert: >
+  Users at site B (192.168.2.0/24) cannot reach the data center server 172.16.0.10.
+  Site A is unaffected.
+inject:
+  - device: rb
+    config:
+      - router bgp 65002
+      - neighbor 10.2.0.1 remote-as 65010
+checks:
+  - {kind: ping, device: hb, target: 172.16.0.10}
+  - {kind: bgp_established, device: rb, target: 10.2.0.1}
+  - {kind: bgp_established, device: r2, target: 10.2.0.2}
+root_cause: {device: rb, category: bgp_neighbor_misconfig}

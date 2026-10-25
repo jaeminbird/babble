@@ -1,0 +1,20 @@
+id: bgp-missing-network
+title: Data center edge no longer originates its server prefix
+topology: metro
+difficulty: easy
+fixable: true
+alert: >
+  Users at sites A and B cannot reach the data center server 172.16.0.10.
+  Traffic between the two sites still works.
+inject:
+  - device: rdc
+    config:
+      - router bgp 65100
+      - address-family ipv4 unicast
+      - no network 172.16.0.0/24
+      - exit-address-family
+checks:
+  - {kind: ping, device: ha, target: 172.16.0.10}
+  - {kind: ping, device: hb, target: 172.16.0.10}
+  - {kind: route_present, device: r1, target: 172.16.0.0/24}
+root_cause: {device: rdc, category: bgp_policy}

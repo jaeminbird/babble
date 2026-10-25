@@ -1,0 +1,19 @@
+id: edge-link-shutdown
+title: Core router r3 has its link to the data center edge administratively shut down
+topology: metro
+difficulty: easy
+fixable: true
+alert: >
+  Users at sites A and B cannot reach the data center server 172.16.0.10.
+  Traffic between the two sites still works.
+inject:
+  - device: r3
+    config:
+      - interface eth3
+      - shutdown
+checks:
+  - {kind: ping, device: ha, target: 172.16.0.10}
+  - {kind: ping, device: hb, target: 172.16.0.10}
+  - {kind: bgp_established, device: r3, target: 10.100.0.2}
+  - {kind: bgp_established, device: rdc, target: 10.100.0.1}
+root_cause: {device: r3, category: interface_down}
