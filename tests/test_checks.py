@@ -3,7 +3,7 @@ import json
 import pytest
 
 from faultline.lab.scripted import ScriptedLab
-from faultline.netops.checks import evaluate, evaluate_all
+from faultline.netops.checks import evaluate, evaluate_all, evaluate_all_after_convergence
 from faultline.types import Check, LabError, PingResult
 
 BGP_CMD = "show bgp neighbors 10.2.0.1 json"
@@ -250,3 +250,49 @@ def test_evaluate_all_collapses_duplicates_without_error():
     lab = lab_with({BGP_CMD: BGP_UP})
     check = Check("bgp_established", "r1", "10.2.0.1")
     assert evaluate_all([check, check], lab) == {check: True}
+
+
+def test_after_convergence_with_no_wait_evaluates_once_and_never_sleeps():
+    lab = lab_with({BGP_CMD: BGP_DOWN})
+    check = Check("bgp_established", "r1", "10.2.0.1")
+    sleeps = []
+    result = evaluate_all_after_convergence(
+        [check], lab, convergence_wait_seconds=0.0, poll_interval_seconds=1.0, sleep=sleeps.append
+    )
+    assert result == {check: False}
+    assert sleeps == []
+
+
+def test_after_convergence_polls_until_the_checks_pass():
+    class ConvergingLab(ScriptedLab):
+        """Reports the BGP session down for the first two reads, then up."""
+
+        def __init__(self):
+            super().__init__(devices=["r1"], responses={})
+            self.reads = 0
+
+        def show(self, device, command):
+            self.reads += 1
+            return BGP_UP if self.reads > 2 else BGP_DOWN
+
+    lab = ConvergingLab()
+    check = Check("bgp_established", "r1", "10.2.0.1")
+    sleeps = []
+    # A short wait keeps the minimum observation window (also capped by the wait) fast.
+    result = evaluate_all_after_convergence(
+        [check], lab, convergence_wait_seconds=0.05, poll_interval_seconds=0.01, sleep=sleeps.append
+    )
+    assert result == {check: True}
+    assert lab.reads >= 3
+    assert sleeps[:2] == [0.01, 0.01]
+
+
+def test_after_convergence_returns_the_last_evaluation_when_the_wait_runs_out():
+    lab = lab_with({BGP_CMD: BGP_DOWN})
+    check = Check("bgp_established", "r1", "10.2.0.1")
+    sleeps = []
+    result = evaluate_all_after_convergence(
+        [check], lab, convergence_wait_seconds=0.05, poll_interval_seconds=0.01, sleep=sleeps.append
+    )
+    assert result == {check: False}
+    assert sleeps
