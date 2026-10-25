@@ -377,13 +377,7 @@ class _Run:
         if self.agent.finish_tool_name != SUBMIT_TOOL:
             self.finish_tool_input = finish_input
             return
-        self.diagnosis = Diagnosis(
-            root_cause_device=finish_input["root_cause_device"],
-            category=finish_input["category"],
-            summary=finish_input["summary"],
-            evidence=list(finish_input["evidence"]),
-            fix_applied=bool(finish_input["fix_applied"]),
-        )
+        self.diagnosis = Diagnosis.from_tool_input(finish_input)
         self.audit.record(Event("diagnosis", asdict(self.diagnosis)))
 
     def _audit_call(self, call: ToolCall) -> None:
@@ -397,12 +391,11 @@ class _Run:
         except Exception as exc:  # noqa: BLE001 - a handler failure is reported to the model
             return ToolResult(f"{type(exc).__name__}: {exc}", is_error=True)
         if tool_spec.name == SUBMIT_TOOL and not result.is_error:
-            problems = _submit_diagnosis_problems(call.input)
-            if problems:
+            try:
+                Diagnosis.from_tool_input(call.input)
+            except ValueError as problem:
                 return ToolResult(
-                    "Diagnosis not recorded: "
-                    + "; ".join(problems)
-                    + f". Call {SUBMIT_TOOL} again with every field.",
+                    f"Diagnosis not recorded: {problem}. Call {SUBMIT_TOOL} again with every field.",
                     is_error=True,
                 )
         return result
@@ -451,26 +444,3 @@ def _is_parallel_safe_batch(tool_specs: list[ToolSpec]) -> bool:
     return len(tool_specs) > 1 and all(
         spec.parallel_safe and not spec.mutating for spec in tool_specs
     )
-
-
-_SUBMIT_DIAGNOSIS_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
-    "root_cause_device": str,
-    "category": str,
-    "summary": str,
-    "evidence": list,
-    "fix_applied": bool,
-}
-
-
-def _submit_diagnosis_problems(submitted_input: dict[str, Any]) -> list[str]:
-    """Why a submit_diagnosis input cannot become a Diagnosis. Empty when it can."""
-    problems = []
-    for field, expected_type in _SUBMIT_DIAGNOSIS_FIELD_TYPES.items():
-        if field not in submitted_input:
-            problems.append(f"missing {field}")
-        elif not isinstance(submitted_input[field], expected_type):
-            problems.append(f"{field} has the wrong type")
-    evidence = submitted_input.get("evidence")
-    if isinstance(evidence, list) and not all(isinstance(item, str) for item in evidence):
-        problems.append("evidence must be a list of strings")
-    return problems
