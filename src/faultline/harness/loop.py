@@ -214,12 +214,54 @@ class _Run:
         for call in calls:
             spec = self.specs.get(call.name)
             self._audit_call(call)
+            gated = self._gate(call, spec)
+            if gated is not None:
+                blocks.append(self._result_block(call, self._finish(call, gated)))
+                continue
+            assert spec is not None  # _gate returns an error for unknown tools
             result = self._finish(call, self._execute(call, spec))
-            if spec is not None and spec.name == SUBMIT_TOOL and not result.is_error:
+            if spec.name == SUBMIT_TOOL and not result.is_error:
                 self._record_diagnosis(call.input)
             blocks.append(self._result_block(call, result))
         # All results for one turn go back in one user message, in call order.
         self.messages.append({"role": "user", "content": blocks})
+
+    def _gate(self, call: ToolCall, spec: ToolSpec | None) -> ToolResult | None:
+        """Return a final result if the call must not run, or None to run it."""
+        if spec is None:
+            return ToolResult(f"Unknown tool: {call.name}", is_error=True)
+        for hook in self.agent.pre_hooks:
+            try:
+                short_circuit = hook(call)
+            except Exception as exc:  # noqa: BLE001 - a broken hook is reported, not raised
+                return ToolResult(f"{type(exc).__name__}: {exc}", is_error=True)
+            if short_circuit is not None:
+                return short_circuit
+        decision, reason = self.agent.policy.decide(call, spec)
+        if decision == "deny":
+            self.denials += 1
+            self.audit.record(Event("denied", {"id": call.id, "name": call.name, "reason": reason}))
+            return ToolResult(f"Denied by policy: {reason}", is_error=True)
+        if decision == "ask":
+            approved, note = self._ask(call, reason)
+            self.audit.record(
+                Event(
+                    "approval",
+                    {"id": call.id, "name": call.name, "approved": approved, "note": note},
+                )
+            )
+            if approved:
+                self.approvals += 1
+                return None
+            self.denials += 1
+            return ToolResult(note, is_error=True)
+        return None
+
+    def _ask(self, call: ToolCall, reason: str) -> tuple[bool, str]:
+        try:
+            return self.agent.approver.approve(call, reason)
+        except Exception as exc:  # noqa: BLE001 - an approver that fails declines the call
+            return False, f"Approval failed, so the change was not made: {type(exc).__name__}: {exc}"
 
     def _record_diagnosis(self, data: dict[str, Any]) -> None:
         if self.diagnosis is not None:
@@ -236,15 +278,21 @@ class _Run:
     def _audit_call(self, call: ToolCall) -> None:
         self.audit.record(Event("tool_call", {"id": call.id, "name": call.name, "input": call.input}))
 
-    def _execute(self, call: ToolCall, spec: ToolSpec | None) -> ToolResult:
-        if spec is None:
-            return ToolResult(f"Unknown tool: {call.name}", is_error=True)
+    def _execute(self, call: ToolCall, spec: ToolSpec) -> ToolResult:
         try:
             return spec.handler(call.input)
         except Exception as exc:  # noqa: BLE001 - a handler failure is reported to the model
             return ToolResult(f"{type(exc).__name__}: {exc}", is_error=True)
 
     def _finish(self, call: ToolCall, result: ToolResult) -> ToolResult:
+        for hook in self.agent.post_hooks:
+            try:
+                replacement = hook(call, result)
+            except Exception as exc:  # noqa: BLE001 - a broken hook is reported, not raised
+                result = ToolResult(f"{type(exc).__name__}: {exc}", is_error=True)
+                continue
+            if replacement is not None:
+                result = replacement
         limit = self.config.truncate_tool_output
         if limit is not None:
             result = ToolResult(truncate(result.content, limit), result.is_error)

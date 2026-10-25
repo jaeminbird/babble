@@ -2,7 +2,7 @@ from typing import Any
 
 from faultline.harness.audit import AuditLog
 from faultline.harness.loop import NUDGE, SUBMIT_TOOL, Agent
-from faultline.harness.policy import AutoApprover, SafetyPolicy
+from faultline.harness.policy import DECLINED_NOTE, AutoApprover, SafetyPolicy, ScriptedApprover
 from faultline.llm import FakeLLMClient, assert_append_only, response, text, tool_use
 from faultline.types import HarnessConfig, LLMResponse, ToolResult, ToolSpec, Usage
 
@@ -268,3 +268,178 @@ def test_llm_error_stops_the_run_with_an_error_event():
     errors = audit.of_type("error")
     assert errors[0].data["message"] == "RuntimeError: network down"
     assert audit.of_type("stop")[0].data["reason"] == "error"
+
+
+# ------------------------------------------------------- policy and approval
+
+
+def _change_spec(handler=None) -> ToolSpec:
+    return _show_spec(
+        handler=handler or (lambda _i: ToolResult("applied")),
+        name="propose_change",
+        mutating=True,
+        parallel_safe=False,
+    )
+
+
+def _change_then_submit(change_input: dict | None = None) -> list[LLMResponse]:
+    return [
+        response(tool_use("propose_change", change_input or {"lines": ["x"]}, id="t1")),
+        response(_submit()),
+    ]
+
+
+def test_mutating_call_runs_after_approval():
+    approver = ScriptedApprover([True])
+    agent, llm, audit = _make(
+        _change_then_submit(),
+        tools=[_change_spec(), _submit_spec()],
+        approver=approver,
+    )
+    result = agent.run("task")
+    assert result.stop_reason == "diagnosis"
+    assert result.approvals == 1
+    assert result.denials == 0
+    assert result.messages[2]["content"][0] == {
+        "type": "tool_result",
+        "tool_use_id": "t1",
+        "content": "applied",
+    }
+    assert len(approver.calls) == 1
+    assert audit.of_type("approval")[0].data == {
+        "id": "t1",
+        "name": "propose_change",
+        "approved": True,
+        "note": "approved by script",
+    }
+    assert_append_only(llm.calls)
+
+
+def test_declined_call_gets_the_note_and_never_runs():
+    ran = []
+    tools = [_change_spec(handler=lambda _i: ran.append(1) or ToolResult("applied")), _submit_spec()]
+    agent, llm, audit = _make(
+        _change_then_submit(), tools=tools, approver=ScriptedApprover([False])
+    )
+    result = agent.run("task")
+    block = result.messages[2]["content"][0]
+    assert block["is_error"] is True
+    assert block["content"] == DECLINED_NOTE
+    assert ran == []
+    assert result.denials == 1
+    assert result.approvals == 0
+    assert audit.of_type("approval")[0].data["approved"] is False
+    assert_append_only(llm.calls)
+
+
+def test_policy_denial_never_reaches_the_approver_or_the_handler():
+    ran = []
+    tools = [
+        _show_spec(handler=lambda _i: ran.append(1) or ToolResult("up")),
+        _submit_spec(),
+    ]
+    approver = ScriptedApprover([])  # any approval request would fail the test
+    agent, llm, audit = _make(
+        [response(tool_use("show", {}, id="t1")), response(_submit())],
+        tools=tools,
+        policy=SafetyPolicy(deny_tools=["show"]),
+        approver=approver,
+    )
+    result = agent.run("task")
+    block = result.messages[2]["content"][0]
+    assert block["is_error"] is True
+    assert block["content"].startswith("Denied by policy: ")
+    assert ran == []
+    assert approver.calls == []
+    assert result.denials == 1
+    assert audit.of_type("denied")[0].data["name"] == "show"
+    assert_append_only(llm.calls)
+
+
+def test_safety_disabled_runs_mutating_tools_without_approval():
+    approver = ScriptedApprover([])
+    agent, llm, audit = _make(
+        _change_then_submit(),
+        tools=[_change_spec(), _submit_spec()],
+        policy=SafetyPolicy(enabled=False),
+        approver=approver,
+    )
+    result = agent.run("task")
+    assert result.messages[2]["content"][0]["content"] == "applied"
+    assert approver.calls == []
+    assert audit.of_type("approval") == []
+    assert_append_only(llm.calls)
+
+
+def test_allow_list_skips_the_approver():
+    approver = ScriptedApprover([])
+    agent, llm, _ = _make(
+        _change_then_submit(),
+        tools=[_change_spec(), _submit_spec()],
+        policy=SafetyPolicy(allow_tools=["propose_change"]),
+        approver=approver,
+    )
+    result = agent.run("task")
+    assert result.messages[2]["content"][0]["content"] == "applied"
+    assert approver.calls == []
+    assert_append_only(llm.calls)
+
+
+def test_approver_that_raises_declines_the_call():
+    class Broken:
+        def approve(self, call, reason):
+            raise RuntimeError("terminal closed")
+
+    agent, llm, _ = _make(
+        _change_then_submit(), tools=[_change_spec(), _submit_spec()], approver=Broken()
+    )
+    result = agent.run("task")
+    block = result.messages[2]["content"][0]
+    assert block["is_error"] is True
+    assert "terminal closed" in block["content"]
+    assert result.denials == 1
+    assert_append_only(llm.calls)
+
+
+def test_pre_hook_can_short_circuit_a_call():
+    ran = []
+    tools = [_show_spec(handler=lambda _i: ran.append(1) or ToolResult("up")), _submit_spec()]
+
+    def cached(call):
+        return ToolResult("cached: up") if call.name == "show" else None
+
+    agent, llm, _ = _make(
+        [response(tool_use("show", {}, id="t1")), response(_submit())],
+        tools=tools,
+        pre_hooks=[cached],
+    )
+    result = agent.run("task")
+    assert result.messages[2]["content"][0]["content"] == "cached: up"
+    assert ran == []
+    assert_append_only(llm.calls)
+
+
+def test_post_hook_can_replace_a_result_and_a_failing_hook_is_an_error():
+    def redact(call, result):
+        return ToolResult("[redacted]")
+
+    agent, llm, _ = _make(
+        [response(tool_use("show", {}, id="t1")), response(_submit())],
+        post_hooks=[redact],
+    )
+    result = agent.run("task")
+    assert result.messages[2]["content"][0]["content"] == "[redacted]"
+    assert_append_only(llm.calls)
+
+    def broken(call, result):
+        raise KeyError("oops")
+
+    agent, llm, _ = _make(
+        [response(tool_use("show", {}, id="t1")), response(_submit())],
+        post_hooks=[broken],
+    )
+    result = agent.run("task")
+    block = result.messages[2]["content"][0]
+    assert block["is_error"] is True
+    assert block["content"] == "KeyError: 'oops'"
+    assert_append_only(llm.calls)
