@@ -82,6 +82,13 @@ class TrialAgent:
     change_manager: ChangeManager
 
 
+def trial_file_path(
+    output_directory: Path, scenario_id: str, preset_name: str, trial_index: int, suffix: str
+) -> Path:
+    """Where one trial's file lives, for example suffix "audit.jsonl" or "messages.json"."""
+    return output_directory / f"{scenario_id}.{preset_name}.{trial_index}.{suffix}"
+
+
 def service_checks_for(topology: Topology, scenario: Scenario) -> list[Check]:
     """The health checks the lab is judged on: the topology's, then the scenario's own, deduplicated."""
     return list(dict.fromkeys(topology.health_checks + scenario.checks))
@@ -101,8 +108,9 @@ def assemble_agent(
     sleep: Callable[[float], None],
 ) -> TrialAgent:
     """Build the agent and its change manager for one trial, wired per `harness_config`."""
-    trial_name = f"{scenario.id}.{preset_name}.{trial_index}"
-    audit = AuditLog(output_directory / f"{trial_name}.audit.jsonl")
+    audit = AuditLog(
+        trial_file_path(output_directory, scenario.id, preset_name, trial_index, "audit.jsonl")
+    )
     accounting = Accounting()
     change_manager = ChangeManager(
         lab,
@@ -255,8 +263,8 @@ def _fault_became_visible(
 
 
 def _write_messages(output_directory: Path, result: TrialResult, run: RunResult) -> None:
-    path = output_directory / (
-        f"{result.scenario_id}.{result.preset_name}.{result.trial_index}.messages.json"
+    path = trial_file_path(
+        output_directory, result.scenario_id, result.preset_name, result.trial_index, "messages.json"
     )
     path.write_text(json.dumps(run.messages, indent=2), encoding="utf-8")
 
