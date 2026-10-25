@@ -7,7 +7,6 @@ findings summary, so the raw command output never fills the parent's context.
 from __future__ import annotations
 
 import dataclasses
-import ipaddress
 from typing import Any
 
 from babble.harness.accounting import Accounting
@@ -16,16 +15,17 @@ from babble.harness.loop import Agent, RunResult
 from babble.harness.policy import SafetyPolicy
 from babble.harness.prompts import SUBAGENT_PROMPT
 from babble.lab.topology import Topology
-from babble.netops.commands import validate_show
+from babble.netops.tools import run_ping, run_show_command
 from babble.types import (
     Approver,
     Event,
     HarnessConfig,
     LabBackend,
-    LabError,
     LLMClient,
     ToolResult,
     ToolSpec,
+    object_schema,
+    string_property,
 )
 
 FINDINGS_TOOL = "submit_findings"
@@ -139,16 +139,18 @@ def _child_tools(lab: LabBackend, device: str) -> list[ToolSpec]:
                 f"Run one read-only vtysh show command on {device}. Append ' json' where "
                 "supported, and query one neighbor/prefix/interface at a time."
             ),
-            input_schema=_schema(
-                {"command": _string("A show command, e.g. 'show ip route json'.")}
+            input_schema=object_schema(
+                {"command": string_property("A show command, e.g. 'show ip route json'.")}
             ),
-            handler=_build_show_handler(lab, device),
+            handler=lambda tool_input: run_show_command(lab, device, tool_input.get("command")),
         ),
         ToolSpec(
             name="ping",
             description=f"Ping an IP address from {device} and get 'N/N received' with the output.",
-            input_schema=_schema({"target": _string("An IP address, e.g. 10.100.0.2.")}),
-            handler=_build_ping_handler(lab, device),
+            input_schema=object_schema(
+                {"target": string_property("An IP address, e.g. 10.100.0.2.")}
+            ),
+            handler=lambda tool_input: run_ping(lab, device, tool_input.get("target")),
         ),
         ToolSpec(
             name=FINDINGS_TOOL,
@@ -156,79 +158,23 @@ def _child_tools(lab: LabBackend, device: str) -> list[ToolSpec]:
                 "Record your findings and end the investigation. Call it exactly once, with a "
                 "summary that answers the question and a list of facts, each with its evidence."
             ),
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "summary": _string("A few sentences that answer the question."),
+            input_schema=object_schema(
+                {
+                    "summary": string_property("A few sentences that answer the question."),
                     "facts": {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "Facts found, each with the command and key values.",
                     },
-                },
-                "required": ["summary", "facts"],
-                "additionalProperties": False,
-            },
+                }
+            ),
             handler=lambda _tool_input: ToolResult("Findings recorded."),
             strict=True,
         ),
     ]
 
 
-def _build_show_handler(lab: LabBackend, device: str):
-    def handle(tool_input: dict[str, Any]) -> ToolResult:
-        command = tool_input.get("command")
-        if not isinstance(command, str):
-            return ToolResult("Not run: command must be a string.", is_error=True)
-        command_problem = validate_show(command)
-        if command_problem:
-            return ToolResult(
-                f"Not run: {command_problem}. Example: show ip route 172.16.0.0/24 json",
-                is_error=True,
-            )
-        try:
-            return ToolResult(lab.show(device, command))
-        except LabError as lab_error:
-            return ToolResult(str(lab_error), is_error=True)
-
-    return handle
-
-
-def _build_ping_handler(lab: LabBackend, device: str):
-    def handle(tool_input: dict[str, Any]) -> ToolResult:
-        target = tool_input.get("target")
-        if not isinstance(target, str):
-            return ToolResult("Not run: target must be an IP address string.", is_error=True)
-        try:
-            ipaddress.ip_address(target)
-        except ValueError:
-            return ToolResult(f"Not run: {target!r} is not an IP address.", is_error=True)
-        try:
-            ping_result = lab.ping(device, target)
-        except LabError as lab_error:
-            return ToolResult(str(lab_error), is_error=True)
-        return ToolResult(
-            f"{ping_result.received}/{ping_result.sent} received\n{ping_result.output}"
-        )
-
-    return handle
-
-
 def _report(device: str, findings: dict[str, Any]) -> str:
     lines = [f"Findings from {device}:", findings["summary"]]
     lines.extend(f"- {fact}" for fact in findings["facts"])
     return "\n".join(lines)
-
-
-def _schema(properties: dict[str, Any]) -> dict[str, Any]:
-    """Every property is required; additional properties are rejected."""
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": list(properties),
-        "additionalProperties": False,
-    }
-
-
-def _string(description: str) -> dict[str, Any]:
-    return {"type": "string", "description": description}

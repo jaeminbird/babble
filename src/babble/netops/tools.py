@@ -21,6 +21,8 @@ from babble.types import (
     LabError,
     ToolResult,
     ToolSpec,
+    object_schema,
+    string_property,
 )
 
 Handler = Callable[[dict[str, Any]], ToolResult]
@@ -42,7 +44,7 @@ def build_tools(
                 "List the routers and hosts in the lab with their roles, addresses and links, "
                 "and the service health checks. Call it first to learn the device names."
             ),
-            input_schema=_schema({}),
+            input_schema=object_schema({}),
             handler=_report_lab_errors_as_results(
                 lambda _tool_input: ToolResult(topology.describe())
             ),
@@ -55,10 +57,10 @@ def build_tools(
                 "show interface eth1 json) and query one neighbor/prefix/interface at a time to "
                 "keep output small."
             ),
-            input_schema=_schema(
+            input_schema=object_schema(
                 {
-                    "device": _string("Router name, e.g. r1."),
-                    "command": _string("A show command, e.g. 'show bgp neighbors 10.1.0.2 json'."),
+                    "device": string_property("Router name, e.g. r1."),
+                    "command": string_property("A show command, e.g. 'show bgp neighbors 10.1.0.2 json'."),
                 }
             ),
             handler=_report_lab_errors_as_results(_make_show_handler(lab, topology)),
@@ -70,10 +72,10 @@ def build_tools(
                 "'N/N received' with the raw ping output. Use it to test end-to-end reachability, "
                 "e.g. device ha, target 172.16.0.10 (the DC server)."
             ),
-            input_schema=_schema(
+            input_schema=object_schema(
                 {
-                    "device": _string("Router or host name, e.g. ha."),
-                    "target": _string("An IPv4 or IPv6 address, e.g. 172.16.0.10."),
+                    "device": string_property("Router or host name, e.g. ha."),
+                    "target": string_property("An IPv4 or IPv6 address, e.g. 172.16.0.10."),
                 }
             ),
             handler=_report_lab_errors_as_results(_make_ping_handler(lab)),
@@ -87,16 +89,16 @@ def build_tools(
                 "If a check that passed before now fails, the change is rolled back "
                 "automatically. Make the smallest change that fixes the diagnosed fault."
             ),
-            input_schema=_schema(
+            input_schema=object_schema(
                 {
-                    "device": _string("Router to change, e.g. r3."),
+                    "device": string_property("Router to change, e.g. r3."),
                     "lines": {
                         "type": "array",
                         "items": {"type": "string"},
                         "minItems": 1,
                         "description": "Config-mode lines, in order.",
                     },
-                    "rationale": _string("Why this change fixes the fault, in one sentence."),
+                    "rationale": string_property("Why this change fixes the fault, in one sentence."),
                 }
             ),
             handler=_report_lab_errors_as_results(
@@ -111,7 +113,7 @@ def build_tools(
                 "Undo the most recent kept change on one router, restoring the config it "
                 "replaced. Use it only when a change you made is wrong and must be reverted."
             ),
-            input_schema=_schema({"device": _string("Router to roll back, e.g. r3.")}),
+            input_schema=object_schema({"device": string_property("Router to roll back, e.g. r3.")}),
             handler=_report_lab_errors_as_results(
                 _make_rollback_handler(lab, topology, change_manager)
             ),
@@ -129,7 +131,6 @@ def build_tools(
 def _make_show_handler(lab: LabBackend, topology: Topology) -> Handler:
     def handle_show_command(tool_input: dict[str, Any]) -> ToolResult:
         device = tool_input.get("device")
-        command = tool_input.get("command")
         problem_message = _device_name_problem(lab, device)
         if problem_message:
             return ToolResult(problem_message, is_error=True)
@@ -137,40 +138,57 @@ def _make_show_handler(lab: LabBackend, topology: Topology) -> Handler:
             return ToolResult(
                 f"Not run: {device} is a host. show runs on routers only.", is_error=True
             )
-        if not isinstance(command, str):
-            return ToolResult("Not run: command must be a string.", is_error=True)
-        problem_message = validate_show(command)
-        if problem_message:
-            return ToolResult(
-                f"Not run: {problem_message}. Example: show ip route 172.16.0.0/24 json",
-                is_error=True,
-            )
-        return ToolResult(lab.show(device, command))
+        return run_show_command(lab, device, tool_input.get("command"))
 
     return handle_show_command
+
+
+def run_show_command(lab: LabBackend, device: str, command: Any) -> ToolResult:
+    """Run one validated read-only show command on a device. Shared by the agent's show tool and
+    the subagent's, so both validate and report the same way."""
+    if not isinstance(command, str):
+        return ToolResult("Not run: command must be a string.", is_error=True)
+    problem_message = validate_show(command)
+    if problem_message:
+        return ToolResult(
+            f"Not run: {problem_message}. Example: show ip route 172.16.0.0/24 json",
+            is_error=True,
+        )
+    try:
+        return ToolResult(lab.show(device, command))
+    except LabError as lab_error:
+        return ToolResult(str(lab_error), is_error=True)
 
 
 def _make_ping_handler(lab: LabBackend) -> Handler:
     def handle_ping_command(tool_input: dict[str, Any]) -> ToolResult:
         device = tool_input.get("device")
-        target = tool_input.get("target")
         problem_message = _device_name_problem(lab, device)
         if problem_message:
             return ToolResult(problem_message, is_error=True)
-        if not isinstance(target, str):
-            return ToolResult("Not run: target must be an IP address string.", is_error=True)
-        try:
-            ipaddress.ip_address(target)
-        except ValueError:
-            return ToolResult(
-                f"Not run: {target!r} is not an IP address, e.g. 172.16.0.10.", is_error=True
-            )
-        ping_result = lab.ping(device, target)
-        return ToolResult(
-            f"{ping_result.received}/{ping_result.sent} received\n{ping_result.output}"
-        )
+        return run_ping(lab, device, tool_input.get("target"))
 
     return handle_ping_command
+
+
+def run_ping(lab: LabBackend, device: str, target: Any) -> ToolResult:
+    """Ping an IP address from a device and report 'N/N received' with the raw output. Shared by
+    the agent's ping tool and the subagent's."""
+    if not isinstance(target, str):
+        return ToolResult("Not run: target must be an IP address string.", is_error=True)
+    try:
+        ipaddress.ip_address(target)
+    except ValueError:
+        return ToolResult(
+            f"Not run: {target!r} is not an IP address, e.g. 172.16.0.10.", is_error=True
+        )
+    try:
+        ping_result = lab.ping(device, target)
+    except LabError as lab_error:
+        return ToolResult(str(lab_error), is_error=True)
+    return ToolResult(
+        f"{ping_result.received}/{ping_result.sent} received\n{ping_result.output}"
+    )
 
 
 def _make_propose_change_handler(
@@ -243,9 +261,9 @@ def _submit_diagnosis_spec() -> ToolSpec:
         input_schema={
             "type": "object",
             "properties": {
-                "root_cause_device": _string("The router where the fault is, e.g. r3."),
+                "root_cause_device": string_property("The router where the fault is, e.g. r3."),
                 "category": {"type": "string", "enum": list(FAULT_CATEGORIES)},
-                "summary": _string(
+                "summary": string_property(
                     "One or two sentences: what is wrong and what you did about it."
                 ),
                 "evidence": {
@@ -267,20 +285,3 @@ def _submit_diagnosis_spec() -> ToolSpec:
         handler=lambda _tool_input: ToolResult("Diagnosis recorded."),
         strict=True,
     )
-
-
-# ------------------------------------------------------------------- schemas
-
-
-def _schema(properties: dict[str, Any]) -> dict[str, Any]:
-    """Every property is required; additional properties are rejected."""
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": list(properties),
-        "additionalProperties": False,
-    }
-
-
-def _string(description: str) -> dict[str, Any]:
-    return {"type": "string", "description": description}

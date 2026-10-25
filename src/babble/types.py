@@ -106,6 +106,21 @@ class ToolSpec:
         return api
 
 
+def object_schema(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
+    """A strict object schema. `required` defaults to every property; additional properties are
+    rejected."""
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties) if required is None else required,
+        "additionalProperties": False,
+    }
+
+
+def string_property(description: str) -> dict[str, Any]:
+    return {"type": "string", "description": description}
+
+
 # ------------------------------------------------------------------------ safety
 
 Decision = Literal["allow", "deny", "ask"]
