@@ -30,6 +30,9 @@ from faultline.types import (
 SUBMIT_TOOL = "submit_diagnosis"
 SUBMIT_FIELDS = ("root_cause_device", "category", "summary", "evidence", "fix_applied")
 
+CUT_OFF = "not run: response was cut off"
+SKIPPED = "not run: diagnosis already submitted"
+
 NUDGE = (
     f"You have not finished. Call {SUBMIT_TOOL} now with your diagnosis, using the evidence "
     "you have. If you are unsure, say so in the summary."
@@ -136,7 +139,8 @@ class _Run:
                     effort=cfg.effort,
                     cache=cfg.prompt_caching,
                 )
-            except Exception as exc:  # noqa: BLE001 - an API failure ends the run, it must not crash it
+            # An API failure ends the run with stop_reason error. It must not crash the caller.
+            except Exception as exc:  # noqa: BLE001
                 self.audit.record(
                     Event(
                         "error",
@@ -166,7 +170,15 @@ class _Run:
             # The assistant turn goes back exactly as the API returned it.
             self.messages.append({"role": "assistant", "content": response.content})
 
+            if response.stop_reason == "refusal":
+                return self._stop("refusal")
+
             calls = response.tool_calls
+            if calls and response.stop_reason == "max_tokens":
+                # The tool_use blocks may be truncated, so none of them runs. Each still gets a
+                # result, so the history stays valid for the next turn.
+                self._answer_cut_off(calls)
+                continue
             if not calls:
                 if self.nudged:
                     return self._stop("no_diagnosis")
@@ -224,8 +236,8 @@ class _Run:
         self.messages.append({"role": "user", "content": blocks})
 
     def _run_one(self, call: ToolCall, spec: ToolSpec | None) -> ToolResult:
-        """Gate, run and finish one call. Calls in a serial batch are fully handled in turn, so
-        an approval is never asked while an earlier call of the same turn is still running."""
+        """Gate, run and finish one call. A serial batch handles each call in full before the next
+        is gated, so a later call's approval never comes before an earlier call has run."""
         self._audit_call(call)
         gated = self._gate(call, spec)
         if gated is not None:
@@ -264,6 +276,8 @@ class _Run:
 
     def _gate(self, call: ToolCall, spec: ToolSpec | None) -> ToolResult | None:
         """Return a final result if the call must not run, or None to run it."""
+        if self.diagnosis is not None:
+            return ToolResult(SKIPPED, is_error=True)
         if spec is None:
             return ToolResult(f"Unknown tool: {call.name}", is_error=True)
         for hook in self.agent.pre_hooks:
@@ -302,6 +316,15 @@ class _Run:
                 f"Approval failed, so the change was not made: {type(exc).__name__}: {exc}",
             )
 
+    def _answer_cut_off(self, calls: list[ToolCall]) -> None:
+        self.tool_calls += len(calls)
+        blocks = []
+        for call in calls:
+            self._audit_call(call)
+            result = self._finish(call, ToolResult(CUT_OFF, is_error=True))
+            blocks.append(self._result_block(call, result))
+        self.messages.append({"role": "user", "content": blocks})
+
     def _record_diagnosis(self, data: dict[str, Any]) -> None:
         if self.diagnosis is not None:
             return
@@ -321,9 +344,19 @@ class _Run:
 
     def _execute(self, call: ToolCall, spec: ToolSpec) -> ToolResult:
         try:
-            return spec.handler(call.input)
+            result = spec.handler(call.input)
         except Exception as exc:  # noqa: BLE001 - a handler failure is reported to the model
             return ToolResult(f"{type(exc).__name__}: {exc}", is_error=True)
+        if spec.name == SUBMIT_TOOL and not result.is_error:
+            problems = _submit_problems(call.input)
+            if problems:
+                return ToolResult(
+                    "Diagnosis not recorded: "
+                    + "; ".join(problems)
+                    + f". Call {SUBMIT_TOOL} again with every field.",
+                    is_error=True,
+                )
+        return result
 
     def _finish(self, call: ToolCall, result: ToolResult) -> ToolResult:
         for hook in self.agent.post_hooks:
@@ -365,3 +398,26 @@ class _Run:
 def _is_parallel_batch(specs: list[ToolSpec]) -> bool:
     """More than one call, all read-only and parallel-safe: the handlers may run concurrently."""
     return len(specs) > 1 and all(s.parallel_safe and not s.mutating for s in specs)
+
+
+_SUBMIT_TYPES: dict[str, type | tuple[type, ...]] = {
+    "root_cause_device": str,
+    "category": str,
+    "summary": str,
+    "evidence": list,
+    "fix_applied": bool,
+}
+
+
+def _submit_problems(data: dict[str, Any]) -> list[str]:
+    """Why a submit_diagnosis input cannot become a Diagnosis. Empty when it can."""
+    problems = []
+    for field in SUBMIT_FIELDS:
+        if field not in data:
+            problems.append(f"missing {field}")
+        elif not isinstance(data[field], _SUBMIT_TYPES[field]):
+            problems.append(f"{field} has the wrong type")
+    evidence = data.get("evidence")
+    if isinstance(evidence, list) and not all(isinstance(item, str) for item in evidence):
+        problems.append("evidence must be a list of strings")
+    return problems

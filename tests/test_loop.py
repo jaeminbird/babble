@@ -587,3 +587,101 @@ def test_submit_with_a_read_in_one_turn_still_records_the_diagnosis():
     assert result.diagnosis is not None
     assert result.turns == 1
     assert_append_only(llm.calls)
+
+
+# ------------------------------------------------------------ stop reasons
+
+
+def test_refusal_stops_the_run_without_a_nudge():
+    agent, llm, audit = _make([response(text("I cannot help with that."), stop_reason="refusal")])
+    result = agent.run("task")
+    assert result.stop_reason == "refusal"
+    assert result.turns == 1
+    assert result.diagnosis is None
+    assert len(llm.calls) == 1
+    assert audit.of_type("stop")[0].data == {"reason": "refusal", "turns": 1}
+    assert_append_only(llm.calls)
+
+
+def test_max_tokens_answers_each_cut_off_call_without_running_it():
+    ran = []
+    tools = [
+        _show_spec(handler=lambda _i: ran.append(1) or ToolResult("up")),
+        _submit_spec(),
+    ]
+    agent, llm, _ = _make(
+        [
+            response(tool_use("show", {"device": "r"}, id="t1"), stop_reason="max_tokens"),
+            response(_submit()),
+        ],
+        tools=tools,
+    )
+    result = agent.run("task")
+    assert ran == []
+    assert result.messages[2] == {
+        "role": "user",
+        "content": [
+            {
+                "type": "tool_result",
+                "tool_use_id": "t1",
+                "content": "not run: response was cut off",
+                "is_error": True,
+            }
+        ],
+    }
+    assert result.stop_reason == "diagnosis"
+    assert result.turns == 2
+    assert_append_only(llm.calls)
+
+
+def test_submit_with_missing_fields_is_an_error_the_model_can_fix():
+    partial = {"root_cause_device": "r3", "category": "interface_down"}
+    agent, llm, audit = _make(
+        [response(tool_use(SUBMIT_TOOL, partial, id="t1")), response(_submit(id="t2"))]
+    )
+    result = agent.run("task")
+    first = result.messages[2]["content"][0]
+    assert first["is_error"] is True
+    assert "missing summary" in first["content"]
+    assert "missing fix_applied" in first["content"]
+    assert result.stop_reason == "diagnosis"
+    assert result.turns == 2
+    # Only the accepted submission is recorded.
+    assert audit.of_type("diagnosis")[0].data["summary"] == DIAGNOSIS["summary"]
+    assert_append_only(llm.calls)
+
+
+def test_submit_with_wrong_types_is_rejected():
+    bad = dict(DIAGNOSIS, evidence="a single string", fix_applied="yes")
+    agent, llm, _ = _make(
+        [response(tool_use(SUBMIT_TOOL, bad, id="t1")), response(_submit(id="t2"))]
+    )
+    result = agent.run("task")
+    content = result.messages[2]["content"][0]["content"]
+    assert "evidence has the wrong type" in content
+    assert "fix_applied has the wrong type" in content
+    assert result.stop_reason == "diagnosis"
+    assert_append_only(llm.calls)
+
+
+def test_calls_after_a_submission_in_the_same_turn_do_not_run():
+    ran = []
+    tools = [
+        _change_spec(handler=lambda _i: ran.append(1) or ToolResult("applied")),
+        _submit_spec(),
+    ]
+    agent, llm, _ = _make(
+        [response(_submit(id="t1"), tool_use("propose_change", {}, id="t2"))],
+        tools=tools,
+        approver=ScriptedApprover([]),  # would fail the test if the change were gated
+    )
+    result = agent.run("task")
+    assert ran == []
+    assert result.messages[2]["content"][1] == {
+        "type": "tool_result",
+        "tool_use_id": "t2",
+        "content": "not run: diagnosis already submitted",
+        "is_error": True,
+    }
+    assert result.stop_reason == "diagnosis"
+    assert_append_only(llm.calls)
