@@ -13,6 +13,12 @@ PRESETS: dict[str, HarnessConfig] = {
     "no_caching": HarnessConfig(prompt_caching=False),
     "no_memory": HarnessConfig(memory_notes=False),
     "no_compaction": HarnessConfig(compaction_threshold=None),
+    "server_compaction": HarnessConfig(
+        server_context_management="compaction", compaction_threshold=None
+    ),
+    "server_clear_tool_uses": HarnessConfig(
+        server_context_management="clear_tool_uses", compaction_threshold=None
+    ),
     # Without safety, nothing is gated, verified or rolled back: the unsafe baseline.
     "no_safety": HarnessConfig(safety=False, verify_after_change=False, auto_rollback=False),
 }

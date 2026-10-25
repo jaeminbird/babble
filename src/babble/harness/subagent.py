@@ -111,6 +111,7 @@ def _investigate(
         max_turns=12,
         subagents=False,
         compaction_threshold=None,
+        server_context_management=None,
         memory_notes=False,
     )
     child_agent = Agent(

@@ -154,6 +154,7 @@ class _Run:
                     max_tokens=harness_config.max_tokens,
                     effort=harness_config.effort,
                     cache=harness_config.prompt_caching,
+                    server_context_management=harness_config.server_context_management,
                 )
             except Exception as exc:  # noqa: BLE001
                 return self._end_run_with_error("llm.complete", turn, exc)

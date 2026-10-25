@@ -338,6 +338,58 @@ def test_plain_stream_when_model_has_no_server_fallbacks():
     assert "betas" not in stub.messages.kwargs
 
 
+@pytest.mark.parametrize(
+    ("strategy", "beta", "edit"),
+    [
+        ("compaction", "compact-2026-01-12", {"type": "compact_20260112"}),
+        (
+            "clear_tool_uses",
+            "context-management-2025-06-27",
+            {"type": "clear_tool_uses_20250919"},
+        ),
+    ],
+)
+def test_server_context_management_uses_beta_endpoint_with_its_beta_and_edit(strategy, beta, edit):
+    stub = _StubAnthropic(_final(TextBlock(type="text", text="ok", citations=None)))
+
+    _complete(stub, server_context_management=strategy)
+
+    assert stub.messages.kwargs is None
+    kwargs = stub.beta.messages.kwargs
+    assert kwargs["betas"] == [beta]
+    assert kwargs["context_management"] == {"edits": [edit]}
+    assert "fallbacks" not in kwargs
+
+
+def test_server_context_management_combines_with_the_fallback_beta_on_opus():
+    stub = _StubAnthropic(_final(TextBlock(type="text", text="ok", citations=None)))
+
+    _complete(stub, model="claude-opus-5-5", server_context_management="compaction")
+
+    kwargs = stub.beta.messages.kwargs
+    assert kwargs["betas"] == [FALLBACK_BETA, "compact-2026-01-12"]
+    assert kwargs["fallbacks"] == "default"
+    assert kwargs["context_management"] == {"edits": [{"type": "compact_20260112"}]}
+
+
+def test_unset_server_context_management_sends_no_context_management():
+    stub = _StubAnthropic(_final(TextBlock(type="text", text="ok", citations=None)))
+
+    _complete(stub)
+
+    assert "context_management" not in stub.messages.kwargs
+
+
+def test_unknown_server_context_management_fails_before_any_request():
+    stub = _StubAnthropic(_final(TextBlock(type="text", text="ok", citations=None)))
+
+    with pytest.raises(ValueError, match="unknown server_context_management 'summarize'"):
+        _complete(stub, server_context_management="summarize")
+
+    assert stub.messages.kwargs is None
+    assert stub.beta.messages.kwargs is None
+
+
 def test_response_blocks_are_plain_dicts_and_metadata_is_mapped():
     final = _final(
         TextBlock(type="text", text="checking", citations=None),

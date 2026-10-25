@@ -132,6 +132,20 @@ def test_request_shape_on_every_call():
     assert_append_only(llm.calls)
 
 
+def test_server_context_management_setting_reaches_every_llm_call():
+    config = HarnessConfig(server_context_management="clear_tool_uses", compaction_threshold=None)
+    agent, llm, _ = _make(
+        [response(tool_use("show", {}, tool_use_id="t1")), response(_submit())], config=config
+    )
+
+    agent.run("task")
+
+    assert [call["server_context_management"] for call in llm.calls] == [
+        "clear_tool_uses",
+        "clear_tool_uses",
+    ]
+
+
 def test_usage_and_cost_are_accumulated():
     usage = Usage(input_tokens=1000, output_tokens=100)
     agent, llm, audit = _make(

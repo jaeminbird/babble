@@ -70,6 +70,7 @@ class LLMClient(Protocol):
         max_tokens: int,
         effort: str | None = None,
         cache: bool = True,
+        server_context_management: str | None = None,
     ) -> LLMResponse: ...
 
 
@@ -306,6 +307,8 @@ class HarnessConfig:
     subagents: bool = True
     # Start a fresh conversation from a summary once input tokens pass this. None = off.
     compaction_threshold: int | None = 120_000
+    # Let the API manage context server-side instead (ablation arm). None = off.
+    server_context_management: Literal["compaction", "clear_tool_uses"] | None = None
     # Give the agent a notes tool whose contents survive compaction.
     memory_notes: bool = True
 

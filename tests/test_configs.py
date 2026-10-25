@@ -12,6 +12,8 @@ def test_every_preset_is_named_after_the_one_feature_it_turns_off():
         "no_caching",
         "no_memory",
         "no_compaction",
+        "server_compaction",
+        "server_clear_tool_uses",
         "no_safety",
     ]
 
@@ -28,6 +30,14 @@ def test_full_is_the_default_harness_config():
         ("no_caching", {"prompt_caching": False}),
         ("no_memory", {"memory_notes": False}),
         ("no_compaction", {"compaction_threshold": None}),
+        (
+            "server_compaction",
+            {"server_context_management": "compaction", "compaction_threshold": None},
+        ),
+        (
+            "server_clear_tool_uses",
+            {"server_context_management": "clear_tool_uses", "compaction_threshold": None},
+        ),
         (
             "no_safety",
             {"safety": False, "verify_after_change": False, "auto_rollback": False},

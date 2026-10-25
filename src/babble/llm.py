@@ -56,6 +56,7 @@ class FakeLLMClient:
         max_tokens: int,
         effort: str | None = None,
         cache: bool = True,
+        server_context_management: str | None = None,
     ) -> LLMResponse:
         self.calls.append(
             copy.deepcopy(
@@ -67,6 +68,7 @@ class FakeLLMClient:
                     "max_tokens": max_tokens,
                     "effort": effort,
                     "cache": cache,
+                    "server_context_management": server_context_management,
                 }
             )
         )
@@ -136,6 +138,7 @@ class AnthropicClient:
         max_tokens: int,
         effort: str | None = None,
         cache: bool = True,
+        server_context_management: str | None = None,
     ) -> LLMResponse:
         request_kwargs = _request_kwargs(
             model=model,
@@ -146,13 +149,33 @@ class AnthropicClient:
             effort=effort,
             cache=cache,
         )
-        if model in FALLBACK_MODELS:
-            request_kwargs["betas"] = [FALLBACK_BETA]
+        uses_server_fallbacks = model in FALLBACK_MODELS
+        if not uses_server_fallbacks and server_context_management is None:
+            with self._client.messages.stream(**request_kwargs) as stream:
+                return _to_response(stream.get_final_message())
+
+        betas: list[str] = []
+        if uses_server_fallbacks:
+            betas.append(FALLBACK_BETA)
             request_kwargs["fallbacks"] = "default"
-            with self._client.beta.messages.stream(**request_kwargs) as beta_stream:
-                return _to_response(beta_stream.get_final_message())
-        with self._client.messages.stream(**request_kwargs) as stream:
-            return _to_response(stream.get_final_message())
+        if server_context_management is not None:
+            beta_name, context_management = _server_context_management_request(
+                server_context_management
+            )
+            betas.append(beta_name)
+            request_kwargs["context_management"] = context_management
+        request_kwargs["betas"] = betas
+        with self._client.beta.messages.stream(**request_kwargs) as beta_stream:
+            return _to_response(beta_stream.get_final_message())
+
+
+def _server_context_management_request(strategy: str) -> tuple[str, dict[str, Any]]:
+    """The beta header and the context_management body for one server-side strategy."""
+    if strategy == "compaction":
+        return "compact-2026-01-12", {"edits": [{"type": "compact_20260112"}]}
+    if strategy == "clear_tool_uses":
+        return "context-management-2025-06-27", {"edits": [{"type": "clear_tool_uses_20250919"}]}
+    raise ValueError(f"unknown server_context_management {strategy!r}")
 
 
 def _request_kwargs(
