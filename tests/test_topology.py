@@ -124,3 +124,12 @@ def test_describe_lists_every_device_and_link(topo: Topology) -> None:
 def test_missing_lab_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         load_topology("nope", labs_dir=tmp_path)
+
+
+@pytest.mark.parametrize("meta_text", ["", "- just\n- a list\n", "scalar\n"])
+def test_meta_yaml_that_is_empty_or_not_a_mapping_raises(tmp_path: Path, meta_text: str) -> None:
+    lab = tmp_path / "broken"
+    lab.mkdir()
+    (lab / "meta.yaml").write_text(meta_text, encoding="utf-8")
+    with pytest.raises(ValueError, match="broken.*meta.yaml must be a non-empty mapping"):
+        load_topology("broken", labs_dir=tmp_path)
