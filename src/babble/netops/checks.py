@@ -50,15 +50,17 @@ def evaluate_all_after_convergence(
 ) -> dict[Check, bool]:
     """Poll the checks until they all pass (after a minimum observation window) or the
     convergence wait runs out, and return the last evaluation. With a zero wait, evaluates once."""
-    started = time.monotonic()
-    minimum = min(MINIMUM_OBSERVATION_SECONDS, convergence_wait_seconds)
+    polling_started_at = time.monotonic()
+    minimum_observation = min(MINIMUM_OBSERVATION_SECONDS, convergence_wait_seconds)
     while True:
-        results = evaluate_all(checks, lab)
-        elapsed = time.monotonic() - started
-        if elapsed >= convergence_wait_seconds:
-            return results
-        if all(results.values()) and elapsed >= minimum:
-            return results
+        latest_results = evaluate_all(checks, lab)
+        seconds_since_polling_started = time.monotonic() - polling_started_at
+        convergence_wait_is_over = seconds_since_polling_started >= convergence_wait_seconds
+        all_checks_passing = all(latest_results.values())
+        if convergence_wait_is_over or (
+            all_checks_passing and seconds_since_polling_started >= minimum_observation
+        ):
+            return latest_results
         sleep(poll_interval_seconds)
 
 
@@ -68,44 +70,44 @@ def _ping(check: Check, lab: LabBackend) -> bool:
 
 def _bgp_established(check: Check, lab: LabBackend) -> bool:
     # Real output: {"10.2.0.1": {"remoteAs": 65002, "bgpState": "Established", ...}}
-    data = _load_json(lab.show(check.device, f"show bgp neighbors {check.target} json"))
-    entry = data.get(check.target)
-    return isinstance(entry, dict) and entry.get("bgpState") == "Established"
+    parsed_output = _load_json(lab.show(check.device, f"show bgp neighbors {check.target} json"))
+    neighbor_entry = parsed_output.get(check.target)
+    return isinstance(neighbor_entry, dict) and neighbor_entry.get("bgpState") == "Established"
 
 
 def _route_present(check: Check, lab: LabBackend) -> bool:
     # Real output: {"172.16.0.0/24": [{"prefix": ..., "protocol": "bgp", ...}]}; empty if absent.
-    data = _load_json(lab.show(check.device, f"show ip route {check.target} json"))
-    routes = data.get(check.target)
-    return isinstance(routes, list) and len(routes) > 0
+    parsed_output = _load_json(lab.show(check.device, f"show ip route {check.target} json"))
+    routes_for_prefix = parsed_output.get(check.target)
+    return isinstance(routes_for_prefix, list) and len(routes_for_prefix) > 0
 
 
-_FULL_FIELDS = ("nbrState", "state", "converged")
+_OSPF_STATE_FIELDS = ("nbrState", "state", "converged")
 
 
 def _ospf_full(check: Check, lab: LabBackend) -> bool:
     # Real output: {"neighbors": {"10.255.0.2": [{"nbrState": "Full/DR", "ifaceName": ...}]}}
-    data = _load_json(lab.show(check.device, "show ip ospf neighbor json"))
-    neighbors = data["neighbors"]
-    entries = neighbors.get(check.target)
-    if not isinstance(entries, list):
+    parsed_output = _load_json(lab.show(check.device, "show ip ospf neighbor json"))
+    neighbor_entries_by_router_id = parsed_output["neighbors"]
+    neighbor_entries = neighbor_entries_by_router_id.get(check.target)
+    if not isinstance(neighbor_entries, list):
         return False
-    for entry in entries:
-        if not isinstance(entry, dict):
+    for neighbor_entry in neighbor_entries:
+        if not isinstance(neighbor_entry, dict):
             continue
-        for field in _FULL_FIELDS:
-            value = entry.get(field)
-            if isinstance(value, str) and value.startswith("Full"):
+        for state_field in _OSPF_STATE_FIELDS:
+            state_value = neighbor_entry.get(state_field)
+            if isinstance(state_value, str) and state_value.startswith("Full"):
                 return True
     return False
 
 
-def _load_json(text: str) -> dict[str, Any]:
+def _load_json(command_output: str) -> dict[str, Any]:
     """Parse command output. Anything that is not a JSON object raises, so evaluate fails."""
-    data = json.loads(text)
-    if not isinstance(data, dict):
+    parsed = json.loads(command_output)
+    if not isinstance(parsed, dict):
         raise TypeError("expected a JSON object")
-    return data
+    return parsed
 
 
 _EVALUATORS = {

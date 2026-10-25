@@ -43,7 +43,9 @@ def build_tools(
                 "and the service health checks. Call it first to learn the device names."
             ),
             input_schema=_schema({}),
-            handler=_lab_errors(lambda _inp: ToolResult(topology.describe())),
+            handler=_report_lab_errors_as_results(
+                lambda _tool_input: ToolResult(topology.describe())
+            ),
         ),
         ToolSpec(
             name="show",
@@ -59,7 +61,7 @@ def build_tools(
                     "command": _string("A show command, e.g. 'show bgp neighbors 10.1.0.2 json'."),
                 }
             ),
-            handler=_lab_errors(_show(lab, topology)),
+            handler=_report_lab_errors_as_results(_make_show_handler(lab, topology)),
         ),
         ToolSpec(
             name="ping",
@@ -74,7 +76,7 @@ def build_tools(
                     "target": _string("An IPv4 or IPv6 address, e.g. 172.16.0.10."),
                 }
             ),
-            handler=_lab_errors(_ping(lab)),
+            handler=_report_lab_errors_as_results(_make_ping_handler(lab)),
         ),
         ToolSpec(
             name="propose_change",
@@ -97,7 +99,9 @@ def build_tools(
                     "rationale": _string("Why this change fixes the fault, in one sentence."),
                 }
             ),
-            handler=_lab_errors(_propose(lab, topology, change_manager)),
+            handler=_report_lab_errors_as_results(
+                _make_propose_change_handler(lab, topology, change_manager)
+            ),
             mutating=True,
             parallel_safe=False,
         ),
@@ -108,48 +112,51 @@ def build_tools(
                 "replaced. Use it only when a change you made is wrong and must be reverted."
             ),
             input_schema=_schema({"device": _string("Router to roll back, e.g. r3.")}),
-            handler=_lab_errors(_rollback(lab, topology, change_manager)),
+            handler=_report_lab_errors_as_results(
+                _make_rollback_handler(lab, topology, change_manager)
+            ),
             parallel_safe=False,
         ),
     ]
     specs.extend(extra)
-    specs.append(_submit_spec())
+    specs.append(_submit_diagnosis_spec())
     return specs
 
 
 # ------------------------------------------------------------------ handlers
 
 
-def _show(lab: LabBackend, topology: Topology) -> Handler:
-    def handle(inp: dict[str, Any]) -> ToolResult:
-        device = inp.get("device")
-        command = inp.get("command")
-        problem = _device_problem(lab, device)
-        if problem:
-            return ToolResult(problem, is_error=True)
+def _make_show_handler(lab: LabBackend, topology: Topology) -> Handler:
+    def handle_show_command(tool_input: dict[str, Any]) -> ToolResult:
+        device = tool_input.get("device")
+        command = tool_input.get("command")
+        problem_message = _device_name_problem(lab, device)
+        if problem_message:
+            return ToolResult(problem_message, is_error=True)
         if device in topology.hosts():
             return ToolResult(
                 f"Not run: {device} is a host. show runs on routers only.", is_error=True
             )
         if not isinstance(command, str):
             return ToolResult("Not run: command must be a string.", is_error=True)
-        problem = validate_show(command)
-        if problem:
+        problem_message = validate_show(command)
+        if problem_message:
             return ToolResult(
-                f"Not run: {problem}. Example: show ip route 172.16.0.0/24 json", is_error=True
+                f"Not run: {problem_message}. Example: show ip route 172.16.0.0/24 json",
+                is_error=True,
             )
         return ToolResult(lab.show(device, command))
 
-    return handle
+    return handle_show_command
 
 
-def _ping(lab: LabBackend) -> Handler:
-    def handle(inp: dict[str, Any]) -> ToolResult:
-        device = inp.get("device")
-        target = inp.get("target")
-        problem = _device_problem(lab, device)
-        if problem:
-            return ToolResult(problem, is_error=True)
+def _make_ping_handler(lab: LabBackend) -> Handler:
+    def handle_ping_command(tool_input: dict[str, Any]) -> ToolResult:
+        device = tool_input.get("device")
+        target = tool_input.get("target")
+        problem_message = _device_name_problem(lab, device)
+        if problem_message:
+            return ToolResult(problem_message, is_error=True)
         if not isinstance(target, str):
             return ToolResult("Not run: target must be an IP address string.", is_error=True)
         try:
@@ -158,20 +165,24 @@ def _ping(lab: LabBackend) -> Handler:
             return ToolResult(
                 f"Not run: {target!r} is not an IP address, e.g. 172.16.0.10.", is_error=True
             )
-        result = lab.ping(device, target)
-        return ToolResult(f"{result.received}/{result.sent} received\n{result.output}")
+        ping_result = lab.ping(device, target)
+        return ToolResult(
+            f"{ping_result.received}/{ping_result.sent} received\n{ping_result.output}"
+        )
 
-    return handle
+    return handle_ping_command
 
 
-def _propose(lab: LabBackend, topology: Topology, changes: ChangeManager) -> Handler:
-    def handle(inp: dict[str, Any]) -> ToolResult:
-        device = inp.get("device")
-        lines = inp.get("lines")
-        rationale = inp.get("rationale")
-        problem = _device_problem(lab, device)
-        if problem:
-            return ToolResult(problem, is_error=True)
+def _make_propose_change_handler(
+    lab: LabBackend, topology: Topology, change_manager: ChangeManager
+) -> Handler:
+    def handle_propose_change(tool_input: dict[str, Any]) -> ToolResult:
+        device = tool_input.get("device")
+        lines = tool_input.get("lines")
+        rationale = tool_input.get("rationale")
+        problem_message = _device_name_problem(lab, device)
+        if problem_message:
+            return ToolResult(problem_message, is_error=True)
         if device in topology.hosts():
             return ToolResult(
                 f"Not applied: {device} is a host. Changes go to routers only.", is_error=True
@@ -180,46 +191,48 @@ def _propose(lab: LabBackend, topology: Topology, changes: ChangeManager) -> Han
             return ToolResult("Not applied: lines must be a list of strings.", is_error=True)
         if not isinstance(rationale, str):
             return ToolResult("Not applied: rationale must be a string.", is_error=True)
-        return changes.apply(device, lines, rationale)
+        return change_manager.apply(device, lines, rationale)
 
-    return handle
+    return handle_propose_change
 
 
-def _rollback(lab: LabBackend, topology: Topology, changes: ChangeManager) -> Handler:
-    def handle(inp: dict[str, Any]) -> ToolResult:
-        device = inp.get("device")
-        problem = _device_problem(lab, device)
-        if problem:
-            return ToolResult(problem, is_error=True)
+def _make_rollback_handler(
+    lab: LabBackend, topology: Topology, change_manager: ChangeManager
+) -> Handler:
+    def handle_rollback(tool_input: dict[str, Any]) -> ToolResult:
+        device = tool_input.get("device")
+        problem_message = _device_name_problem(lab, device)
+        if problem_message:
+            return ToolResult(problem_message, is_error=True)
         if device in topology.hosts():
             return ToolResult(f"Not run: {device} is a host, so it has no changes.", is_error=True)
-        return changes.rollback(device)
+        return change_manager.rollback(device)
 
-    return handle
+    return handle_rollback
 
 
-def _lab_errors(handler: Handler) -> Handler:
+def _report_lab_errors_as_results(handler: Handler) -> Handler:
     """Report a LabError as an error result. Other exceptions reach the loop, which reports them."""
 
     @functools.wraps(handler)
-    def wrapper(inp: dict[str, Any]) -> ToolResult:
+    def handle_and_report_lab_errors(tool_input: dict[str, Any]) -> ToolResult:
         try:
-            return handler(inp)
-        except LabError as exc:
-            return ToolResult(str(exc), is_error=True)
+            return handler(tool_input)
+        except LabError as lab_error:
+            return ToolResult(str(lab_error), is_error=True)
 
-    return wrapper
+    return handle_and_report_lab_errors
 
 
-def _device_problem(lab: LabBackend, device: Any) -> str | None:
+def _device_name_problem(lab: LabBackend, device: Any) -> str | None:
     """None when `device` names a device in the lab, else an error listing the valid names."""
-    devices = lab.devices()
-    if isinstance(device, str) and device in devices:
+    devices_in_lab = lab.devices()
+    if isinstance(device, str) and device in devices_in_lab:
         return None
-    return f"Unknown device {device!r}. Valid devices: {', '.join(devices)}"
+    return f"Unknown device {device!r}. Valid devices: {', '.join(devices_in_lab)}"
 
 
-def _submit_spec() -> ToolSpec:
+def _submit_diagnosis_spec() -> ToolSpec:
     return ToolSpec(
         name=SUBMIT_TOOL,
         description=(
@@ -251,7 +264,7 @@ def _submit_spec() -> ToolSpec:
             ],
             "additionalProperties": False,
         },
-        handler=lambda _inp: ToolResult("Diagnosis recorded."),
+        handler=lambda _tool_input: ToolResult("Diagnosis recorded."),
         strict=True,
     )
 

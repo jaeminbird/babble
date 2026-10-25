@@ -5,12 +5,12 @@ from __future__ import annotations
 import re
 
 MAX_SHOW_LENGTH = 200
-_FORBIDDEN_CHARS = ("|", ";", "&", "$", "`", "<", ">", "\n", "\r")
+_FORBIDDEN_SHELL_CHARACTERS = ("|", ";", "&", "$", "`", "<", ">", "\n", "\r")
 
 # Config lines that destroy state or change access. Matched against the stripped, lowercased line.
 BLOCKED_CONFIG_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(p)
-    for p in (
+    re.compile(pattern_text)
+    for pattern_text in (
         r"^no router (bgp|ospf)",
         r"^no interface",
         r"^hostname",
@@ -26,15 +26,15 @@ BLOCKED_CONFIG_PATTERNS: list[re.Pattern[str]] = [
 
 def validate_show(command: str) -> str | None:
     """Return an error message if `command` is not an acceptable read-only show command, else None."""
-    cmd = command.strip()
-    if not cmd.lower().startswith("show "):
+    stripped_command = command.strip()
+    if not stripped_command.lower().startswith("show "):
         return "command must start with 'show '"
-    if len(cmd) > MAX_SHOW_LENGTH:
+    if len(stripped_command) > MAX_SHOW_LENGTH:
         return f"command is longer than {MAX_SHOW_LENGTH} characters"
-    for ch in _FORBIDDEN_CHARS:
-        if ch in cmd:
-            return f"command contains forbidden character {ch!r}"
-    if ".." in cmd:
+    for forbidden_character in _FORBIDDEN_SHELL_CHARACTERS:
+        if forbidden_character in stripped_command:
+            return f"command contains forbidden character {forbidden_character!r}"
+    if ".." in stripped_command:
         return "command contains forbidden sequence '..'"
     return None
 
@@ -43,9 +43,12 @@ def blocked_config(lines: list[str]) -> list[str]:
     """Return one reason per config line that matches a blocked pattern. Empty list means all OK."""
     reasons: list[str] = []
     for line in lines:
-        normalized = line.strip().lower()
-        for pattern in BLOCKED_CONFIG_PATTERNS:
-            if pattern.search(normalized):
-                reasons.append(f"blocked config line {line.strip()!r} (matches {pattern.pattern})")
+        stripped_line = line.strip()
+        normalized_line = stripped_line.lower()
+        for blocked_pattern in BLOCKED_CONFIG_PATTERNS:
+            if blocked_pattern.search(normalized_line):
+                reasons.append(
+                    f"blocked config line {stripped_line!r} (matches {blocked_pattern.pattern})"
+                )
                 break
     return reasons
