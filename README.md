@@ -45,7 +45,15 @@ The two control scenarios have no config fix. The right answer is to diagnose co
 
 ## Results
 
-Results go here once the bench has run.
+First pass: Claude Opus 5.5, `full` preset, one trial per scenario (2026-10-25).
+
+| Solved | Root cause correct | Mean cost | Cost per solved task | Cache hit rate | Mean turns | Unnecessary changes | Collateral damage | Unapproved changes |
+|---|---|---|---|---|---|---|---|---|
+| 12/12 | 12/12 | $0.072 | $0.072 | 87% | 7.3 | 0 | 0 | 0 |
+
+Both control scenarios were handled correctly: on the healthy network it reported `no_fault`, and on the lossy link it diagnosed `link_degradation` and recommended escalation, changing nothing in either case. The hardest scenarios (OSPF loopback, next-hop-self) took 8-9 turns and under $0.09.
+
+**What this does not show yet.** One trial per scenario says nothing about reliability, so pass^k needs repeated trials. Opus solves every scenario, so on this bench the ablations can only separate cost, not success; harder scenarios or a smaller model are needed to show which harness features matter. No change was ever rolled back, so the rollback path is covered by tests but has not yet been exercised by a live run. In this run the agent never used `inspect_device`; on a six-router network it investigated directly.
 
 ## Quickstart
 
