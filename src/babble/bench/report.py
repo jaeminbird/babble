@@ -38,20 +38,22 @@ def _check_pass_arguments(successes: int, trials: int, k: int) -> None:
 
 def summarize_by_preset(results: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     """One summary row per preset, in first-appearance order."""
-    by_preset = _group(results, "preset_name")
+    by_preset = _group_rows_by(results, "preset_name")
     return [_summarize(preset_name, rows) for preset_name, rows in by_preset.items()]
 
 
 def _summarize(preset_name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     trials = len(rows)
-    solved = _count(rows, "solved")
+    solved = _count_true(rows, "solved")
     total_cost = sum(row["cost_usd"] for row in rows)
 
     # pass^k per scenario, with k the number of trials that scenario got in this preset, then the
     # mean over scenarios.
-    scenarios = _group(rows, "scenario_id").values()
-    pass_hat_1 = _mean(pass_hat_k(_count(s, "solved"), len(s), 1) for s in scenarios)
-    pass_hat_k_max = _mean(pass_hat_k(_count(s, "solved"), len(s), len(s)) for s in scenarios)
+    scenarios = _group_rows_by(rows, "scenario_id").values()
+    pass_hat_1 = _mean_of(pass_hat_k(_count_true(s, "solved"), len(s), 1) for s in scenarios)
+    pass_hat_k_max = _mean_of(
+        pass_hat_k(_count_true(s, "solved"), len(s), len(s)) for s in scenarios
+    )
 
     input_tokens = sum(row["input_tokens"] for row in rows)
     cache_read = sum(row["cache_read_input_tokens"] for row in rows)
@@ -64,7 +66,7 @@ def _summarize(preset_name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "preset": preset_name,
         "trials": trials,
         "solve_rate": solved / trials,
-        "root_cause_accuracy": _count(rows, "root_cause_correct") / trials,
+        "root_cause_accuracy": _count_true(rows, "root_cause_correct") / trials,
         "pass_hat_1": pass_hat_1,
         "pass_hat_k_max": pass_hat_k_max,
         "mean_cost_usd": total_cost / trials,
@@ -72,7 +74,7 @@ def _summarize(preset_name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "mean_turns": sum(row["turns"] for row in rows) / trials,
         "cache_hit_rate": cache_read / cache_denominator if cache_denominator else None,
         "unnecessary_change_rate": (
-            _count(unfixable, "unnecessary_change") / len(unfixable) if unfixable else None
+            _count_true(unfixable, "unnecessary_change") / len(unfixable) if unfixable else None
         ),
         "collateral_damage_count": sum(len(row["collateral_damage"]) for row in rows),
         "unapproved_changes": sum(row["unapproved_changes"] for row in rows),
@@ -91,26 +93,28 @@ def render_markdown_table(rows: Sequence[dict[str, Any]]) -> str:
         "|" + "|".join("---" for _ in columns) + "|",
     ]
     for row in rows:
-        lines.append("| " + " | ".join(_cell(column, row[column]) for column in columns) + " |")
+        lines.append(
+            "| " + " | ".join(_format_cell(column, row[column]) for column in columns) + " |"
+        )
     return "\n".join(lines)
 
 
 def per_scenario_table(results: Sequence[dict[str, Any]]) -> str:
     """Rows are scenarios, columns are presets, and each cell is "solved/trials"."""
-    presets = list(_group(results, "preset_name"))
+    presets = list(_group_rows_by(results, "preset_name"))
     rows: list[dict[str, Any]] = []
-    for scenario_id, scenario_rows in _group(results, "scenario_id").items():
+    for scenario_id, scenario_rows in _group_rows_by(results, "scenario_id").items():
         row: dict[str, Any] = {"scenario": scenario_id}
         for preset_name in presets:
             in_preset = [r for r in scenario_rows if r["preset_name"] == preset_name]
             row[preset_name] = (
-                f"{_count(in_preset, 'solved')}/{len(in_preset)}" if in_preset else "-"
+                f"{_count_true(in_preset, 'solved')}/{len(in_preset)}" if in_preset else "-"
             )
         rows.append(row)
     return render_markdown_table(rows)
 
 
-def _cell(column: str, value: Any) -> str:
+def _format_cell(column: str, value: Any) -> str:
     if value is None:
         return "-"
     if isinstance(value, float):
@@ -120,17 +124,17 @@ def _cell(column: str, value: Any) -> str:
     return str(value)
 
 
-def _group(rows: Sequence[dict[str, Any]], key: str) -> dict[str, list[dict[str, Any]]]:
+def _group_rows_by(rows: Sequence[dict[str, Any]], key: str) -> dict[str, list[dict[str, Any]]]:
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         groups.setdefault(row[key], []).append(row)
     return groups
 
 
-def _count(rows: Sequence[dict[str, Any]], key: str) -> int:
+def _count_true(rows: Sequence[dict[str, Any]], key: str) -> int:
     return sum(1 for row in rows if row[key])
 
 
-def _mean(values: Iterable[float]) -> float:
+def _mean_of(values: Iterable[float]) -> float:
     collected = list(values)
     return sum(collected) / len(collected)
