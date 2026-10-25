@@ -1,0 +1,277 @@
+"""The agent's tool surface for a netops lab: build_tools() returns the ToolSpecs the loop runs.
+
+Every handler reports a lab failure as an error result the model can read, never as a raised
+exception. Device names are checked against the lab first, so a typo gets the list of valid names.
+"""
+
+from __future__ import annotations
+
+import functools
+import ipaddress
+from collections.abc import Callable, Sequence
+from typing import Any
+
+from faultline.harness.loop import SUBMIT_TOOL
+from faultline.lab.topology import Topology
+from faultline.netops.change import ChangeManager
+from faultline.netops.commands import validate_show
+from faultline.types import (
+    FAULT_CATEGORIES,
+    HarnessConfig,
+    LabBackend,
+    LabError,
+    ToolResult,
+    ToolSpec,
+)
+
+Handler = Callable[[dict[str, Any]], ToolResult]
+
+
+def build_tools(
+    lab: LabBackend,
+    topology: Topology,
+    change_manager: ChangeManager,
+    config: HarnessConfig,
+    extra: Sequence[ToolSpec] = (),
+) -> list[ToolSpec]:
+    """The tools for one run, in a fixed order: list_devices, show, ping, propose_change,
+    rollback, then `extra` (subagent and notes tools), then submit_diagnosis last.
+    """
+    del config  # reserved: the change manager already holds the verify and rollback flags
+
+    specs = [
+        ToolSpec(
+            name="list_devices",
+            description=(
+                "List the routers and hosts in the lab with their roles, addresses and links, "
+                "and the service health checks. Call it first to learn the device names."
+            ),
+            input_schema=_schema({}),
+            handler=_lab_errors(lambda _inp: ToolResult(topology.describe())),
+        ),
+        ToolSpec(
+            name="show",
+            description=(
+                "Run one read-only vtysh show command on one router. Append ' json' where "
+                "supported (show bgp summary json, show ip route json, show ip ospf neighbor json, "
+                "show interface eth1 json) and query one neighbor/prefix/interface at a time to "
+                "keep output small."
+            ),
+            input_schema=_schema(
+                {
+                    "device": _string("Router name, e.g. r1."),
+                    "command": _string("A show command, e.g. 'show bgp neighbors 10.1.0.2 json'."),
+                }
+            ),
+            handler=_lab_errors(_show(lab, topology)),
+        ),
+        ToolSpec(
+            name="ping",
+            description=(
+                "Ping an IP address from one device (a router or a host) and get the result as "
+                "'N/N received' with the raw ping output. Use it to test end-to-end reachability, "
+                "e.g. device ha, target 172.16.0.10 (the DC server)."
+            ),
+            input_schema=_schema(
+                {
+                    "device": _string("Router or host name, e.g. ha."),
+                    "target": _string("An IPv4 or IPv6 address, e.g. 172.16.0.10."),
+                }
+            ),
+            handler=_lab_errors(_ping(lab)),
+        ),
+        ToolSpec(
+            name="propose_change",
+            description=(
+                "Apply config lines to one router in vtysh configuration mode, then re-run the "
+                "service checks. Lines are config-mode lines only, without 'configure terminal' "
+                'or \'end\', e.g. ["interface eth3", "no shutdown"]. Needs operator approval. '
+                "If a check that passed before now fails, the change is rolled back "
+                "automatically. Make the smallest change that fixes the diagnosed fault."
+            ),
+            input_schema=_schema(
+                {
+                    "device": _string("Router to change, e.g. r3."),
+                    "lines": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "description": "Config-mode lines, in order.",
+                    },
+                    "rationale": _string("Why this change fixes the fault, in one sentence."),
+                }
+            ),
+            handler=_lab_errors(_propose(lab, topology, change_manager)),
+            mutating=True,
+            parallel_safe=False,
+        ),
+        ToolSpec(
+            name="rollback",
+            description=(
+                "Undo the most recent kept change on one router, restoring the config it "
+                "replaced. Use it only when a change you made is wrong and must be reverted."
+            ),
+            input_schema=_schema({"device": _string("Router to roll back, e.g. r3.")}),
+            handler=_lab_errors(_rollback(lab, topology, change_manager)),
+            parallel_safe=False,
+        ),
+    ]
+    specs.extend(extra)
+    specs.append(_submit_spec())
+    return specs
+
+
+# ------------------------------------------------------------------ handlers
+
+
+def _show(lab: LabBackend, topology: Topology) -> Handler:
+    def handle(inp: dict[str, Any]) -> ToolResult:
+        device = inp.get("device")
+        command = inp.get("command")
+        problem = _device_problem(lab, device)
+        if problem:
+            return ToolResult(problem, is_error=True)
+        if device in topology.hosts():
+            return ToolResult(
+                f"Not run: {device} is a host. show runs on routers only.", is_error=True
+            )
+        if not isinstance(command, str):
+            return ToolResult("Not run: command must be a string.", is_error=True)
+        problem = validate_show(command)
+        if problem:
+            return ToolResult(
+                f"Not run: {problem}. Example: show ip route 172.16.0.0/24 json", is_error=True
+            )
+        return ToolResult(lab.show(device, command))
+
+    return handle
+
+
+def _ping(lab: LabBackend) -> Handler:
+    def handle(inp: dict[str, Any]) -> ToolResult:
+        device = inp.get("device")
+        target = inp.get("target")
+        problem = _device_problem(lab, device)
+        if problem:
+            return ToolResult(problem, is_error=True)
+        if not isinstance(target, str):
+            return ToolResult("Not run: target must be an IP address string.", is_error=True)
+        try:
+            ipaddress.ip_address(target)
+        except ValueError:
+            return ToolResult(
+                f"Not run: {target!r} is not an IP address, e.g. 172.16.0.10.", is_error=True
+            )
+        result = lab.ping(device, target)
+        return ToolResult(f"{result.received}/{result.sent} received\n{result.output}")
+
+    return handle
+
+
+def _propose(lab: LabBackend, topology: Topology, changes: ChangeManager) -> Handler:
+    def handle(inp: dict[str, Any]) -> ToolResult:
+        device = inp.get("device")
+        lines = inp.get("lines")
+        rationale = inp.get("rationale")
+        problem = _device_problem(lab, device)
+        if problem:
+            return ToolResult(problem, is_error=True)
+        if device in topology.hosts():
+            return ToolResult(
+                f"Not applied: {device} is a host. Changes go to routers only.", is_error=True
+            )
+        if not isinstance(lines, list) or not all(isinstance(line, str) for line in lines):
+            return ToolResult("Not applied: lines must be a list of strings.", is_error=True)
+        if not isinstance(rationale, str):
+            return ToolResult("Not applied: rationale must be a string.", is_error=True)
+        return changes.apply(device, lines, rationale)
+
+    return handle
+
+
+def _rollback(lab: LabBackend, topology: Topology, changes: ChangeManager) -> Handler:
+    def handle(inp: dict[str, Any]) -> ToolResult:
+        device = inp.get("device")
+        problem = _device_problem(lab, device)
+        if problem:
+            return ToolResult(problem, is_error=True)
+        if device in topology.hosts():
+            return ToolResult(f"Not run: {device} is a host, so it has no changes.", is_error=True)
+        return changes.rollback(device)
+
+    return handle
+
+
+def _lab_errors(handler: Handler) -> Handler:
+    """Report a LabError as an error result. Other exceptions reach the loop, which reports them."""
+
+    @functools.wraps(handler)
+    def wrapper(inp: dict[str, Any]) -> ToolResult:
+        try:
+            return handler(inp)
+        except LabError as exc:
+            return ToolResult(str(exc), is_error=True)
+
+    return wrapper
+
+
+def _device_problem(lab: LabBackend, device: Any) -> str | None:
+    """None when `device` names a device in the lab, else an error listing the valid names."""
+    devices = lab.devices()
+    if isinstance(device, str) and device in devices:
+        return None
+    return f"Unknown device {device!r}. Valid devices: {', '.join(devices)}"
+
+
+def _submit_spec() -> ToolSpec:
+    return ToolSpec(
+        name=SUBMIT_TOOL,
+        description=(
+            "Record your final diagnosis and end the run. Call it once, when you have identified "
+            "the fault or are confident there is none. Set fix_applied true only if an approved "
+            "propose_change is in place and the service checks now pass."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "root_cause_device": _string("The router where the fault is, e.g. r3."),
+                "category": {"type": "string", "enum": list(FAULT_CATEGORIES)},
+                "summary": _string(
+                    "One or two sentences: what is wrong and what you did about it."
+                ),
+                "evidence": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "The command outputs or observations that support the diagnosis.",
+                },
+                "fix_applied": {"type": "boolean"},
+            },
+            "required": [
+                "root_cause_device",
+                "category",
+                "summary",
+                "evidence",
+                "fix_applied",
+            ],
+            "additionalProperties": False,
+        },
+        handler=lambda _inp: ToolResult("Diagnosis recorded."),
+        strict=True,
+    )
+
+
+# ------------------------------------------------------------------- schemas
+
+
+def _schema(properties: dict[str, Any]) -> dict[str, Any]:
+    """Every property is required; additional properties are rejected."""
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
+
+
+def _string(description: str) -> dict[str, Any]:
+    return {"type": "string", "description": description}
