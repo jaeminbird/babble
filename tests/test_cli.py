@@ -57,8 +57,8 @@ class FakeLabManager:
         if self.health_error is not None:
             raise LabError(self.health_error)
 
-    def take_baseline(self) -> None:
-        self.calls.append("take_baseline")
+    def save_baseline(self) -> None:
+        self.calls.append("save_baseline")
 
     def reset(self) -> None:
         self.calls.append("reset")
@@ -276,7 +276,7 @@ def test_lab_up_deploys_waits_for_health_and_reports_it(
     assert cli.main(["lab", "up"]) == 0
 
     assert capsys.readouterr().out.strip() == "lab metro is healthy"
-    assert fake_lab.calls == ["deploy", "wait_healthy(150)"]
+    assert fake_lab.calls == ["deploy", "wait_healthy(150)", "save_baseline"]
 
 
 def test_lab_up_exits_one_when_the_lab_never_becomes_healthy(
@@ -359,7 +359,7 @@ def test_run_solved_exits_zero_and_summarises_the_trial(
     assert "Changes: applied 0, kept 0, rolled back 0" in out
     assert (output_directory / f"{NO_FAULT_SCENARIO}.full.1.audit.jsonl").is_file()
     assert (output_directory / f"{NO_FAULT_SCENARIO}.full.1.messages.json").is_file()
-    assert fake_lab.calls == ["wait_healthy(30)", "take_baseline", "reset"]
+    assert fake_lab.calls == ["reset", "wait_healthy(30)", "reset"]
 
 
 def test_run_not_solved_exits_one(
@@ -395,7 +395,7 @@ def test_run_fails_fast_with_a_clear_message_when_the_lab_is_unhealthy(
 
     assert code == 1
     assert "lab not healthy after 30s" in capsys.readouterr().err
-    assert fake_lab.calls == ["wait_healthy(30)"]
+    assert fake_lab.calls == ["reset", "wait_healthy(30)"]
 
 
 # -------------------------------------------------------------------- bench

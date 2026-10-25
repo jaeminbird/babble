@@ -154,7 +154,7 @@ Each package is one branch, built in its own git worktree, by one implementer. W
     - ping: `docker exec <c> ping -c <n> -W 1 -i 0.2 <target>`; parse `(\d+) packets transmitted, (\d+) (?:packets )?received`.
     - host_exec: `docker exec <c> <argv...>`.
     - Non-zero exit -> `LabError` with stderr (ping excepted: non-zero just means loss).
-  - `class LabManager(topology, runner)`: `deploy()` = `containerlab deploy -t <path> --reconfigure`; `destroy()` = `containerlab destroy -t <path> --cleanup`; `wait_healthy(timeout=120)` polls `topology.health_checks` via `checks.evaluate` if available (import lazily; until W1-C merges, accept a callable); `take_baseline()` snapshots every router; `reset()` restores every router to baseline.
+  - `class LabManager(topology, runner)`: `deploy()` = `containerlab deploy -t <path> --reconfigure`; `destroy()` = `containerlab destroy -t <path> --cleanup`; `wait_healthy(timeout=120)` polls `topology.health_checks` via `checks.evaluate` if available (import lazily; until W1-C merges, accept a callable); `save_baseline()` (run by `babble lab up` on a fresh deploy) writes every router's running config to `labs/<name>/clab-<name>/babble-baseline/`; `reset()` restores every router from those files and fails fast if they are missing. A baseline is never re-snapshotted from a running lab, so leftovers from earlier runs cannot become the new baseline.
 - Tests: topology loads and is self-consistent (every link endpoint is a device, every config file exists, each router config contains its loopback), ClabLab argv construction and output parsing with a fake runner, WSL path conversion.
 
 **Verified live against `frr:containerlab-10.7.1` (2026-10-25)**

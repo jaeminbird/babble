@@ -174,7 +174,11 @@ class LabManager:
         self.topology = topology
         self.runner = runner
         self.lab = ClabLab(topology, runner)
-        self._baseline_snapshots_by_router: dict[str, str] = {}
+        # Inside containerlab's own lab directory, so `destroy --cleanup` and a redeploy
+        # discard it together with the lab it describes.
+        self.baseline_directory = (
+            topology.lab_directory / f"clab-{topology.name}" / "babble-baseline"
+        )
 
     def deploy(self) -> None:
         clab_file_path = self.runner.path(self.topology.clab_file)
@@ -210,16 +214,28 @@ class LabManager:
             names = ", ".join(check.describe() for check in failing_checks_at_last_poll)
             raise LabError(f"lab not healthy after {timeout}s; failing: {names}")
 
-    def take_baseline(self) -> None:
-        self._baseline_snapshots_by_router = {
-            router_name: self.lab.snapshot(router_name) for router_name in self.topology.routers()
-        }
+    def save_baseline(self) -> None:
+        """Record every router's running config as the state `reset` returns to. Call it only
+        on a freshly deployed lab: a baseline taken later would preserve whatever earlier runs
+        left behind."""
+        self.baseline_directory.mkdir(parents=True, exist_ok=True)
+        for router_name in self.topology.routers():
+            baseline_path = self.baseline_directory / f"{router_name}.conf"
+            baseline_path.write_text(self.lab.snapshot(router_name), encoding="utf-8")
 
     def reset(self) -> None:
-        if not self._baseline_snapshots_by_router:
-            raise LabError("no baseline to reset to; call take_baseline() first")
-        for router_name, snapshot_config in self._baseline_snapshots_by_router.items():
-            self.lab.restore(router_name, snapshot_config)
+        """Restore every router to the baseline saved when the lab was deployed."""
+        baseline_configs_by_router = {}
+        for router_name in self.topology.routers():
+            baseline_path = self.baseline_directory / f"{router_name}.conf"
+            if not baseline_path.is_file():
+                raise LabError(
+                    f"no saved baseline at {baseline_path}; run `babble lab up` to deploy a "
+                    "fresh lab and record one"
+                )
+            baseline_configs_by_router[router_name] = baseline_path.read_text(encoding="utf-8")
+        for router_name, baseline_config in baseline_configs_by_router.items():
+            self.lab.restore(router_name, baseline_config)
 
 
 def _check_is_passing(evaluate: Evaluate, lab: LabBackend, check: Check) -> bool:
