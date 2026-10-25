@@ -217,9 +217,7 @@ class _Run:
 
     def _end_run_with_error(self, where: str, turn: int, exc: Exception) -> RunResult:
         error_message = f"{type(exc).__name__}: {exc}"
-        self.audit.record(
-            Event("error", {"where": where, "turn": turn, "message": error_message})
-        )
+        self.audit.record(Event("error", {"where": where, "turn": turn, "message": error_message}))
         return self._stop("error", error_message=error_message)
 
     def _stop(self, reason: str, error_message: str | None = None) -> RunResult:

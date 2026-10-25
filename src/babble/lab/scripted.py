@@ -87,9 +87,7 @@ class ScriptedLab:
             unknown_hosts = sorted(self._host_names - known_device_names)
             raise ValueError(f"hosts not in devices: {unknown_hosts}")
 
-        self._broken_show_responses = _normalize_table(
-            responses, known_device_names, "responses"
-        )
+        self._broken_show_responses = _normalize_table(responses, known_device_names, "responses")
         self._fixed_show_responses = _normalize_table(
             fixed_responses or {}, known_device_names, "fixed_responses"
         )

@@ -193,9 +193,7 @@ def run_ping(lab: LabBackend, device: str, target: Any) -> ToolResult:
         ping_result = lab.ping(device, target)
     except LabError as lab_error:
         return ToolResult(str(lab_error), is_error=True)
-    return ToolResult(
-        f"{ping_result.received}/{ping_result.sent} received\n{ping_result.output}"
-    )
+    return ToolResult(f"{ping_result.received}/{ping_result.sent} received\n{ping_result.output}")
 
 
 def _make_propose_change_handler(

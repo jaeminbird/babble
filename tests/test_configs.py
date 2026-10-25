@@ -49,8 +49,7 @@ def test_preset_returns_a_copy_so_callers_cannot_change_the_shared_preset():
 def test_preset_overrides_the_model_only_when_given():
     assert harness_config_for_preset("full").model == HarnessConfig().model
     assert (
-        harness_config_for_preset("no_memory", model="claude-haiku-5-5").model
-        == "claude-haiku-5-5"
+        harness_config_for_preset("no_memory", model="claude-haiku-5-5").model == "claude-haiku-5-5"
     )
     assert harness_config_for_preset("no_memory", model="claude-haiku-5-5").memory_notes is False
 
