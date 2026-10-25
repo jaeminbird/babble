@@ -151,13 +151,39 @@ class ChangeManager:
                     "anything else.",
                     is_error=True,
                 )
-            self._record_rollback(device, "service checks regressed", regressed_check_descriptions)
-            return ToolResult(
+            # A restored config can take a BGP update cycle to carry traffic again, so wait for
+            # the broken checks to recover instead of claiming they have.
+            checks_passing_after_rollback = evaluate_all_after_convergence(
+                checks_regressed_by_change,
+                self.lab,
+                self.convergence_wait_seconds,
+                self.poll_interval_seconds,
+                self.sleep,
+            )
+            still_failing_after_rollback = [
+                check.describe()
+                for check in checks_regressed_by_change
+                if not checks_passing_after_rollback[check]
+            ]
+            self._record_rollback(
+                device,
+                "service checks regressed",
+                regressed_check_descriptions,
+                still_failing_after_rollback,
+            )
+            result_text = (
                 f"Change on {device} was rolled back automatically because it broke: "
                 f"{_summarize_check_list(regressed_check_descriptions)}. "
-                "The device is back to its previous config.",
-                is_error=True,
+                "The device is back to its previous config"
             )
+            if still_failing_after_rollback:
+                result_text += (
+                    ", but these checks have not recovered: "
+                    f"{_summarize_check_list(still_failing_after_rollback)}."
+                )
+            else:
+                result_text += ", and those checks pass again."
+            return ToolResult(result_text, is_error=True)
 
         index_of_recorded_change = len(self.change_records)
         self.change_records.append(
@@ -248,7 +274,7 @@ class ChangeManager:
             return ToolResult(f"Rollback on {device} failed: {lab_error}", is_error=True)
         undo_stack.pop()
         self.change_records[index_of_change]["rolled_back"] = True
-        self._record_rollback(device, "rolled back on request", [])
+        self._record_rollback(device, "rolled back on request", [], [])
         return ToolResult(
             f"Rolled back the last change on {device}. The device is back to its previous config."
         )
@@ -263,9 +289,23 @@ class ChangeManager:
             return str(lab_error)
         return None
 
-    def _record_rollback(self, device: str, reason: str, regressions: list[str]) -> None:
+    def _record_rollback(
+        self,
+        device: str,
+        reason: str,
+        regressions: list[str],
+        still_failing_after_rollback: list[str],
+    ) -> None:
         self.audit.record(
-            Event("rollback", {"device": device, "reason": reason, "regressions": regressions})
+            Event(
+                "rollback",
+                {
+                    "device": device,
+                    "reason": reason,
+                    "regressions": regressions,
+                    "still_failing_after_rollback": still_failing_after_rollback,
+                },
+            )
         )
 
     def _record_rollback_failed(

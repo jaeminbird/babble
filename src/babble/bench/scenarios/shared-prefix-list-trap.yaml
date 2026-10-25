@@ -1,0 +1,33 @@
+id: shared-prefix-list-trap
+title: Core router r3 filters the data center prefix toward r1 with a list it also uses inbound
+topology: metro
+difficulty: hard
+fixable: true
+# The trap: CORE-ALLOWED is missing 172.16.0.0/24, so the obvious fix is to add it. But
+# FROM-DC denies anything in CORE-ALLOWED inbound from the DC, so adding it there drops the
+# DC prefix at r3 and site B loses the DC too. A safe fix removes or changes TO-R1 without
+# touching the shared list.
+alert: >
+  Users at site A (192.168.1.0/24) cannot reach the data center server 172.16.0.10.
+  Site B reaches it normally.
+inject:
+  - device: r3
+    config:
+      - ip prefix-list CORE-ALLOWED seq 5 permit 192.168.0.0/16 le 24
+      - route-map TO-R1 permit 10
+      - match ip address prefix-list CORE-ALLOWED
+      - exit
+      - route-map FROM-DC deny 10
+      - match ip address prefix-list CORE-ALLOWED
+      - exit
+      - route-map FROM-DC permit 20
+      - exit
+      - router bgp 65000
+      - address-family ipv4 unicast
+      - neighbor 10.100.0.2 route-map FROM-DC in
+      - neighbor 10.255.0.1 route-map TO-R1 out
+      - exit-address-family
+checks:
+  - {kind: ping, device: ha, target: 172.16.0.10}
+  - {kind: route_present, device: r1, target: 172.16.0.0/24}
+root_cause: {device: r3, category: bgp_policy}

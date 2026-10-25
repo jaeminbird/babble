@@ -35,6 +35,7 @@ EXPECTED_IDS = [
     "no-fault-control",
     "ospf-loopback-missing",
     "ospf-timer-mismatch",
+    "shared-prefix-list-trap",
     "static-blackhole",
 ]
 
