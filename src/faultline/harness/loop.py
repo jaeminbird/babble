@@ -7,6 +7,7 @@ tool call's result goes back in one user message. Nothing already in `messages` 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
@@ -210,21 +211,56 @@ class _Run:
 
     def _run_calls(self, calls: list[ToolCall]) -> None:
         self.tool_calls += len(calls)
-        blocks = []
-        for call in calls:
-            spec = self.specs.get(call.name)
-            self._audit_call(call)
-            gated = self._gate(call, spec)
-            if gated is not None:
-                blocks.append(self._result_block(call, self._finish(call, gated)))
-                continue
-            assert spec is not None  # _gate returns an error for unknown tools
-            result = self._finish(call, self._execute(call, spec))
-            if spec.name == SUBMIT_TOOL and not result.is_error:
-                self._record_diagnosis(call.input)
-            blocks.append(self._result_block(call, result))
+        specs = [self.specs.get(call.name) for call in calls]
+        known = [spec for spec in specs if spec is not None]
+        if len(known) == len(calls) and _is_parallel_batch(known):
+            results = self._run_parallel(calls, known)
+        else:
+            results = [self._run_one(call, spec) for call, spec in zip(calls, specs, strict=True)]
         # All results for one turn go back in one user message, in call order.
+        blocks = [
+            self._result_block(call, result) for call, result in zip(calls, results, strict=True)
+        ]
         self.messages.append({"role": "user", "content": blocks})
+
+    def _run_one(self, call: ToolCall, spec: ToolSpec | None) -> ToolResult:
+        """Gate, run and finish one call. Calls in a serial batch are fully handled in turn, so
+        an approval is never asked while an earlier call of the same turn is still running."""
+        self._audit_call(call)
+        gated = self._gate(call, spec)
+        if gated is not None:
+            return self._finish(call, gated)
+        assert spec is not None  # _gate returns an error for unknown tools
+        return self._complete(call, spec, self._execute(call, spec))
+
+    def _run_parallel(self, calls: list[ToolCall], specs: list[ToolSpec]) -> list[ToolResult]:
+        """Gate every call on this thread, run the allowed handlers concurrently, then finish them
+        in call order. Only read-only, parallel-safe tools reach this path, so nothing here asks
+        for approval."""
+        for call in calls:
+            self._audit_call(call)
+        gated = [self._gate(call, spec) for call, spec in zip(calls, specs, strict=True)]
+        runnable = [i for i, outcome in enumerate(gated) if outcome is None]
+        ran: dict[int, ToolResult] = {}
+        if runnable:
+            with ThreadPoolExecutor(max_workers=len(runnable)) as pool:
+                outputs = pool.map(lambda i: self._execute(calls[i], specs[i]), runnable)
+                ran = dict(zip(runnable, outputs, strict=True))
+        results: list[ToolResult] = []
+        for i, (call, spec) in enumerate(zip(calls, specs, strict=True)):
+            if i in ran:
+                results.append(self._complete(call, spec, ran[i]))
+            else:
+                outcome = gated[i]
+                assert outcome is not None
+                results.append(self._finish(call, outcome))
+        return results
+
+    def _complete(self, call: ToolCall, spec: ToolSpec, result: ToolResult) -> ToolResult:
+        result = self._finish(call, result)
+        if spec.name == SUBMIT_TOOL and not result.is_error:
+            self._record_diagnosis(call.input)
+        return result
 
     def _gate(self, call: ToolCall, spec: ToolSpec | None) -> ToolResult | None:
         """Return a final result if the call must not run, or None to run it."""
@@ -261,7 +297,10 @@ class _Run:
         try:
             return self.agent.approver.approve(call, reason)
         except Exception as exc:  # noqa: BLE001 - an approver that fails declines the call
-            return False, f"Approval failed, so the change was not made: {type(exc).__name__}: {exc}"
+            return (
+                False,
+                f"Approval failed, so the change was not made: {type(exc).__name__}: {exc}",
+            )
 
     def _record_diagnosis(self, data: dict[str, Any]) -> None:
         if self.diagnosis is not None:
@@ -276,7 +315,9 @@ class _Run:
         self.audit.record(Event("diagnosis", asdict(self.diagnosis)))
 
     def _audit_call(self, call: ToolCall) -> None:
-        self.audit.record(Event("tool_call", {"id": call.id, "name": call.name, "input": call.input}))
+        self.audit.record(
+            Event("tool_call", {"id": call.id, "name": call.name, "input": call.input})
+        )
 
     def _execute(self, call: ToolCall, spec: ToolSpec) -> ToolResult:
         try:
@@ -319,3 +360,8 @@ class _Run:
         if result.is_error:
             block["is_error"] = True
         return block
+
+
+def _is_parallel_batch(specs: list[ToolSpec]) -> bool:
+    """More than one call, all read-only and parallel-safe: the handlers may run concurrently."""
+    return len(specs) > 1 and all(s.parallel_safe and not s.mutating for s in specs)

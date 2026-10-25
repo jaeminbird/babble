@@ -1,3 +1,5 @@
+import threading
+import time
 from typing import Any
 
 from faultline.harness.audit import AuditLog
@@ -317,7 +319,10 @@ def test_mutating_call_runs_after_approval():
 
 def test_declined_call_gets_the_note_and_never_runs():
     ran = []
-    tools = [_change_spec(handler=lambda _i: ran.append(1) or ToolResult("applied")), _submit_spec()]
+    tools = [
+        _change_spec(handler=lambda _i: ran.append(1) or ToolResult("applied")),
+        _submit_spec(),
+    ]
     agent, llm, audit = _make(
         _change_then_submit(), tools=tools, approver=ScriptedApprover([False])
     )
@@ -442,4 +447,143 @@ def test_post_hook_can_replace_a_result_and_a_failing_hook_is_an_error():
     block = result.messages[2]["content"][0]
     assert block["is_error"] is True
     assert block["content"] == "KeyError: 'oops'"
+    assert_append_only(llm.calls)
+
+
+# --------------------------------------------------------- parallel execution
+
+
+def test_read_only_batch_runs_concurrently_and_keeps_call_order():
+    # Each handler waits at the barrier for the other, so the test only passes if both run at once.
+    # A serial run would hit the barrier timeout and return an error instead.
+    barrier = threading.Barrier(2, timeout=5)
+    tools = [
+        _show_spec(name=name, handler=lambda _i, n=name: _meet(barrier, n), parallel_safe=True)
+        for name in ("show_a", "show_b")
+    ] + [_submit_spec()]
+    agent, llm, _ = _make(
+        [
+            response(tool_use("show_a", {}, id="ta"), tool_use("show_b", {}, id="tb")),
+            response(_submit()),
+        ],
+        tools=tools,
+    )
+    result = agent.run("task")
+    blocks = result.messages[2]["content"]
+    assert [b["tool_use_id"] for b in blocks] == ["ta", "tb"]
+    assert [b["content"] for b in blocks] == ["show_a ok", "show_b ok"]
+    assert all("is_error" not in b for b in blocks)
+    assert result.stop_reason == "diagnosis"
+    assert_append_only(llm.calls)
+
+
+def _meet(barrier: threading.Barrier, name: str) -> ToolResult:
+    try:
+        barrier.wait()
+    except threading.BrokenBarrierError:
+        return ToolResult("not concurrent", is_error=True)
+    return ToolResult(f"{name} ok")
+
+
+def test_results_keep_call_order_when_a_later_call_finishes_first():
+    def slow(_input):
+        time.sleep(0.2)
+        return ToolResult("slow done")
+
+    tools = [
+        _show_spec(name="slow", handler=slow),
+        _show_spec(name="fast", handler=lambda _i: ToolResult("fast done")),
+        _submit_spec(),
+    ]
+    agent, llm, _ = _make(
+        [
+            response(tool_use("slow", {}, id="t1"), tool_use("fast", {}, id="t2")),
+            response(_submit()),
+        ],
+        tools=tools,
+    )
+    result = agent.run("task")
+    blocks = result.messages[2]["content"]
+    assert [b["content"] for b in blocks] == ["slow done", "fast done"]
+    assert_append_only(llm.calls)
+
+
+def test_one_failing_handler_in_a_parallel_batch_does_not_stop_the_others():
+    def broken(_input):
+        raise OSError("device unreachable")
+
+    tools = [
+        _show_spec(name="bad", handler=broken),
+        _show_spec(name="good", handler=lambda _i: ToolResult("good")),
+        _submit_spec(),
+    ]
+    agent, llm, _ = _make(
+        [
+            response(tool_use("bad", {}, id="t1"), tool_use("good", {}, id="t2")),
+            response(_submit()),
+        ],
+        tools=tools,
+    )
+    result = agent.run("task")
+    blocks = result.messages[2]["content"]
+    assert blocks[0]["content"] == "OSError: device unreachable"
+    assert blocks[0]["is_error"] is True
+    assert blocks[1]["content"] == "good"
+    assert_append_only(llm.calls)
+
+
+def test_denied_call_inside_a_parallel_batch_is_not_run():
+    ran = []
+    tools = [
+        _show_spec(name="a", handler=lambda _i: ran.append("a") or ToolResult("a")),
+        _show_spec(name="b", handler=lambda _i: ran.append("b") or ToolResult("b")),
+        _submit_spec(),
+    ]
+    agent, llm, _ = _make(
+        [response(tool_use("a", {}, id="t1"), tool_use("b", {}, id="t2")), response(_submit())],
+        tools=tools,
+        policy=SafetyPolicy(deny_tools=["a"]),
+    )
+    result = agent.run("task")
+    blocks = result.messages[2]["content"]
+    assert blocks[0]["is_error"] is True
+    assert blocks[1]["content"] == "b"
+    assert ran == ["b"]
+    assert result.denials == 1
+    assert_append_only(llm.calls)
+
+
+def test_mixed_batch_with_a_mutating_tool_runs_in_order_and_asks_inline():
+    ran = []
+    tools = [
+        _show_spec(handler=lambda _i: ran.append("show") or ToolResult("up")),
+        _change_spec(handler=lambda _i: ran.append("change") or ToolResult("applied")),
+        _submit_spec(),
+    ]
+    approver = ScriptedApprover([True])
+    agent, llm, audit = _make(
+        [
+            response(tool_use("show", {}, id="t1"), tool_use("propose_change", {}, id="t2")),
+            response(_submit()),
+        ],
+        tools=tools,
+        approver=approver,
+    )
+    result = agent.run("task")
+    assert ran == ["show", "change"]
+    assert [b["content"] for b in result.messages[2]["content"]] == ["up", "applied"]
+    # Serial path: each call finishes before the next is gated, so the approval comes after the
+    # read-only call's result.
+    types = [e.type for e in audit.events]
+    assert types.index("approval") > types.index("tool_result")
+    assert_append_only(llm.calls)
+
+
+def test_submit_with_a_read_in_one_turn_still_records_the_diagnosis():
+    tools = [_show_spec(), _submit_spec()]
+    agent, llm, _ = _make([response(tool_use("show", {}, id="t1"), _submit(id="t2"))], tools=tools)
+    result = agent.run("task")
+    assert result.stop_reason == "diagnosis"
+    assert result.diagnosis is not None
+    assert result.turns == 1
     assert_append_only(llm.calls)
