@@ -92,13 +92,18 @@ class ToolSpec:
     mutating: bool = False
     # Safe to run concurrently with other parallel_safe calls in the same turn.
     parallel_safe: bool = True
+    # Ask the API to guarantee schema-valid input (schema needs additionalProperties: false).
+    strict: bool = False
 
     def to_api(self) -> dict[str, Any]:
-        return {
+        api = {
             "name": self.name,
             "description": self.description,
             "input_schema": self.input_schema,
         }
+        if self.strict:
+            api["strict"] = True
+        return api
 
 
 # ------------------------------------------------------------------------ safety
@@ -158,6 +163,28 @@ class LabBackend(Protocol):
         ...
 
 
+CheckKind = Literal["ping", "bgp_established", "route_present", "ospf_full"]
+
+
+@dataclass(frozen=True)
+class Check:
+    """A service-level health check. The harness runs these to verify a change; the bench runs
+    them to score a fix.
+
+    ping:            device pings target (an IP)
+    bgp_established: device has a BGP session in state Established with neighbor target (an IP)
+    route_present:   device's routing table has a route for target (a prefix, e.g. 172.16.0.0/24)
+    ospf_full:       device has an OSPF adjacency in state Full with neighbor router-id target
+    """
+
+    kind: CheckKind
+    device: str
+    target: str
+
+    def describe(self) -> str:
+        return f"{self.kind} {self.device} -> {self.target}"
+
+
 # ------------------------------------------------------------------------- audit
 
 
@@ -185,6 +212,7 @@ FAULT_CATEGORIES = (
     "acl_or_filter",
     "mtu_mismatch",
     "link_degradation",
+    "no_fault",
     "other",
 )
 
