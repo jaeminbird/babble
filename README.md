@@ -7,6 +7,7 @@
 Claude investigates. You approve. The network proves the fix, or babble takes it back.<br>
 **12/12** injected network faults fixed and verified on live routers.
 
+[![CI](https://github.com/jaeminbird/babble/actions/workflows/ci.yml/badge.svg)](https://github.com/jaeminbird/babble/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Model](https://img.shields.io/badge/model-Claude%20Opus%205.5-D97757)
