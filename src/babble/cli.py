@@ -95,11 +95,12 @@ def default_output_directory() -> Path:
 
 
 def bring_lab_to_baseline(manager: LabManager) -> None:
-    """Fail fast unless the running lab is healthy, then record it as the baseline to reset to."""
+    """Reset the running lab to the baseline saved at deploy time, then fail fast unless it is
+    healthy."""
+    manager.reset()
     manager.wait_healthy(
         evaluate, timeout=LAB_READY_TIMEOUT_SECONDS, interval=LAB_POLL_INTERVAL_SECONDS
     )
-    manager.take_baseline()
 
 
 def default_lab_at_baseline() -> tuple[Topology, LabManager]:
@@ -117,6 +118,7 @@ def command_lab_up(args: argparse.Namespace) -> int:
     manager.wait_healthy(
         evaluate, timeout=LAB_UP_TIMEOUT_SECONDS, interval=LAB_POLL_INTERVAL_SECONDS
     )
+    manager.save_baseline()
     print(f"lab {topology.name} is healthy")
     return EXIT_OK
 

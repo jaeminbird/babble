@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -279,7 +280,9 @@ def test_deploy_failure_raises_with_stderr(topo) -> None:
         manager.deploy()
 
 
-def test_take_baseline_then_reset_restores_each_router(topo) -> None:
+def test_save_baseline_then_reset_restores_each_router_from_disk(topo, tmp_path) -> None:
+    topo = dataclasses.replace(topo, lab_directory=tmp_path)
+
     def handler(argv, _stdin):
         if "running-config" in argv[-1]:
             device = argv[argv.index("exec") + 1].removeprefix("clab-metro-")
@@ -287,24 +290,33 @@ def test_take_baseline_then_reset_restores_each_router(topo) -> None:
         return completed(argv)
 
     manager, runner = make_manager(topo, handler)
-    manager.take_baseline()
+    manager.save_baseline()
     snapshot_calls = [call for call in runner.calls if "running-config" in call[-1]]
     assert len(snapshot_calls) == len(topo.routers())
+    assert sorted(path.name for path in manager.baseline_directory.iterdir()) == sorted(
+        f"{router}.conf" for router in topo.routers()
+    )
 
-    runner.calls.clear()
-    runner.stdin_texts.clear()
-    manager.reset()
+    # A fresh manager, as in a later babble command, resets to the saved files.
+    later_manager, later_runner = make_manager(topo)
+    later_manager.reset()
     restore_inputs = [
-        config_input for config_input in runner.stdin_texts if config_input is not None
+        config_input for config_input in later_runner.stdin_texts if config_input is not None
     ]
     assert restore_inputs == [
         f"frr version 10.7.1\nhostname {router}\n" for router in topo.routers()
     ]
 
 
-def test_reset_without_baseline_raises(topo) -> None:
+def test_baseline_lives_in_the_containerlab_lab_directory(topo) -> None:
+    manager, _ = make_manager(topo)
+    assert manager.baseline_directory == topo.lab_directory / "clab-metro" / "babble-baseline"
+
+
+def test_reset_without_saved_baseline_raises(topo, tmp_path) -> None:
+    topo = dataclasses.replace(topo, lab_directory=tmp_path)
     manager, runner = make_manager(topo)
-    with pytest.raises(LabError, match="baseline"):
+    with pytest.raises(LabError, match="babble lab up"):
         manager.reset()
     assert runner.calls == []
 

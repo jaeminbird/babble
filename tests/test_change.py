@@ -1,7 +1,7 @@
 from babble.harness.audit import AuditLog
 from babble.lab.scripted import ScriptedLab
 from babble.netops.change import ChangeManager
-from babble.types import Check, HarnessConfig, LabError
+from babble.types import Check, HarnessConfig, LabError, PingResult
 
 FIX = ["interface eth3", "no shutdown"]
 RATIONALE = "eth3 is administratively down"
@@ -212,7 +212,8 @@ def test_regression_rolls_back_automatically():
     assert result.is_error
     assert result.content == (
         "Change on r3 was rolled back automatically because it broke: "
-        "ping hb -> 192.168.2.10. The device is back to its previous config."
+        "ping hb -> 192.168.2.10. The device is back to its previous config, and those checks "
+        "pass again."
     )
     assert lab.applied_lines("r3") == []
     assert lab.state == "broken"
@@ -221,9 +222,44 @@ def test_regression_rolls_back_automatically():
         "device": "r3",
         "reason": "service checks regressed",
         "regressions": ["ping hb -> 192.168.2.10"],
+        "still_failing_after_rollback": [],
     }
     assert manager.change_records[0]["rolled_back"] is True
     assert manager.change_records[0]["regressions"] == ["ping hb -> 192.168.2.10"]
+
+
+class RestoreDoesNotHealLab(ScriptedLab):
+    """The restore succeeds, but the regressed ping stays down, as if the network never
+    reconverged."""
+
+    restored = False
+
+    def restore(self, device, config):
+        super().restore(device, config)
+        self.restored = True
+
+    def ping(self, device, target):
+        if self.restored:
+            return PingResult(sent=3, received=0, output="")
+        return super().ping(device, target)
+
+
+def test_rollback_reports_checks_that_did_not_recover():
+    manager, _lab, audit = make_manager_with_lab(
+        [PING_B], lab_cls=RestoreDoesNotHealLab, lab_overrides=_regression_overrides()
+    )
+    result = manager.apply("r3", FIX, RATIONALE)
+
+    assert result.is_error
+    assert result.content == (
+        "Change on r3 was rolled back automatically because it broke: "
+        "ping hb -> 192.168.2.10. The device is back to its previous config, but these checks "
+        "have not recovered: ping hb -> 192.168.2.10."
+    )
+    assert audit.of_type("rollback")[0].data["still_failing_after_rollback"] == [
+        "ping hb -> 192.168.2.10"
+    ]
+    assert manager.change_records[0]["rolled_back"] is True
 
 
 def test_regression_is_kept_when_auto_rollback_is_off():
