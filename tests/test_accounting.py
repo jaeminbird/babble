@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 
 from faultline.harness.accounting import Accounting
@@ -57,4 +59,32 @@ def test_priced_and_unpriced_models_mix():
     acc.add(Usage(1_000_000, 0), "claude-haiku-5-5")
     acc.add(Usage(1_000_000, 0), "mystery")
     assert acc.cost_usd == pytest.approx(0.10)
+    assert acc.unpriced == ["mystery"]
+
+
+def test_concurrent_adds_lose_no_usage_or_calls():
+    acc = Accounting()
+    thread_count, adds_per_thread = 8, 500
+    barrier = threading.Barrier(thread_count)
+
+    def add_many(model: str) -> None:
+        barrier.wait()
+        for _ in range(adds_per_thread):
+            acc.add(Usage(3, 2, 1, 4), model)
+
+    threads = [
+        threading.Thread(target=add_many, args=("claude-haiku-5-5" if i % 2 else "mystery",))
+        for i in range(thread_count)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    total = thread_count * adds_per_thread
+    assert acc.calls == total
+    assert acc.usage == Usage(3 * total, 2 * total, total, 4 * total)
+    assert acc.by_model["claude-haiku-5-5"].input_tokens == 3 * total // 2
+    assert acc.by_model["mystery"].input_tokens == 3 * total // 2
+    assert acc.cost_usd == pytest.approx(cost(Usage(3, 2, 1, 4), "claude-haiku-5-5") * total / 2)
     assert acc.unpriced == ["mystery"]
