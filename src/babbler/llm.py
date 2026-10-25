@@ -8,7 +8,7 @@ from typing import Any
 
 import anthropic
 
-from faultline.types import LLMResponse, Usage
+from babbler.types import LLMResponse, Usage
 
 # $ per 1M tokens: (input, output)
 PRICING: dict[str, tuple[float, float]] = {

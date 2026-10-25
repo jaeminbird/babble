@@ -1,6 +1,6 @@
 # Build plan
 
-This is the spec each implementation branch is built against. Shared types are in `src/faultline/types.py`; read it first.
+This is the spec each implementation branch is built against. Shared types are in `src/babbler/types.py`; read it first.
 
 ## Goal
 
@@ -12,12 +12,12 @@ Show that a Claude agent can cut time-to-diagnosis for network faults, safely en
 - **AIOpsLab / SREGym**: fault-injection benchmarks for Kubernetes microservices, not networks.
 - **NetArena**: has a safety metric and routing tasks, but on Mininet without real routing daemons.
 
-faultline adds fixes verified against the FRR control plane, a measured approval/rollback layer, harness ablations with cost per solved task and pass^k, and control scenarios (healthy network, unfixable physical fault) where the right answer is to change nothing.
+babbler adds fixes verified against the FRR control plane, a measured approval/rollback layer, harness ablations with cost per solved task and pass^k, and control scenarios (healthy network, unfixable physical fault) where the right answer is to change nothing.
 
 ## Architecture
 
 ```
-src/faultline/
+src/babbler/
   types.py            shared contracts (main only)
   llm.py              AnthropicClient, FakeLLMClient, pricing + cost()
   harness/
@@ -95,7 +95,7 @@ Each package is one branch, built in its own git worktree, by one implementer. W
 
 ### Wave 1 (depends only on types.py)
 
-**W1-A `feat/llm-client`**: `src/faultline/llm.py`, `tests/test_llm.py`
+**W1-A `feat/llm-client`**: `src/babbler/llm.py`, `tests/test_llm.py`
 - `PRICING: dict[str, tuple[float, float]]` = $ per 1M input/output tokens: `claude-opus-5-5` (4.00, 20.00), `claude-sonnet-5-5` (2.00, 10.00), `claude-haiku-5-5` (0.10, 0.50). Cache writes cost 1.25x input; cache reads cost 0.05x input for opus-5-5 and 0.1x for the others.
 - `cost(usage: Usage, model: str) -> float` in dollars. Unknown model: raise `KeyError`.
 - `class AnthropicClient` implementing `LLMClient`:
@@ -147,10 +147,10 @@ Each package is one branch, built in its own git worktree, by one implementer. W
 - `meta.yaml`: `name`, `devices` (`name: {kind: router|host, role, asn?, loopback?, ip?}`), `links` (list of `{a: "r1:eth1", b: "r2:eth1", subnet: "10.0.12.0/30"}`), `health_checks` (list of `{kind, device, target}`).
 - `lab/topology.py`: `@dataclass Topology(name, dir: Path, devices: dict[str, dict], links: list[dict], health_checks: list[Check])`, `load_topology(name: str, labs_dir: Path | None = None) -> Topology` (default labs dir = repo-root `labs/`), `routers()`, `hosts()`, `describe() -> str` (a compact text map the agent can read).
 - `lab/clab.py`:
-  - `class CommandRunner(prefix: list[str] | None = None)`: `run(argv, input: str | None = None, timeout=60) -> subprocess.CompletedProcess`; `path(p: Path) -> str` converts Windows paths to `/mnt/<drive>/...` when a WSL prefix is in use. `CommandRunner.from_env()`: if env `FAULTLINE_WSL_DISTRO` is set, prefix = `["wsl", "-d", distro, "-u", "root", "--"]`.
+  - `class CommandRunner(prefix: list[str] | None = None)`: `run(argv, input: str | None = None, timeout=60) -> subprocess.CompletedProcess`; `path(p: Path) -> str` converts Windows paths to `/mnt/<drive>/...` when a WSL prefix is in use. `CommandRunner.from_env()`: if env `BABBLER_WSL_DISTRO` is set, prefix = `["wsl", "-d", distro, "-u", "root", "--"]`.
   - `class ClabLab(topology: Topology, runner: CommandRunner)` implements `LabBackend`. Container name `clab-{topology.name}-{device}`.
     - show: `docker exec <c> vtysh -c <command>`. configure: `docker exec <c> vtysh -c "configure terminal" -c <line>... -c end`; raise `LabError` with the output if any output line starts with `%`.
-    - snapshot: `show running-config`. restore: write the config to `/tmp/faultline-restore.conf` via `docker exec -i <c> sh -c "cat > /tmp/faultline-restore.conf"` with stdin, then `docker exec <c> /usr/lib/frr/frr-reload.py --reload /tmp/faultline-restore.conf`.
+    - snapshot: `show running-config`. restore: write the config to `/tmp/babbler-restore.conf` via `docker exec -i <c> sh -c "cat > /tmp/babbler-restore.conf"` with stdin, then `docker exec <c> /usr/lib/frr/frr-reload.py --reload /tmp/babbler-restore.conf`.
     - ping: `docker exec <c> ping -c <n> -W 1 -i 0.2 <target>`; parse `(\d+) packets transmitted, (\d+) (?:packets )?received`.
     - host_exec: `docker exec <c> <argv...>`.
     - Non-zero exit -> `LabError` with stderr (ping excepted: non-zero just means loss).
@@ -221,7 +221,7 @@ Each package is one branch, built in its own git worktree, by one implementer. W
 
 **W3-J `feat/bench-runner`**: `bench/configs.py` (presets: `full`, `no_subagents`, `no_truncation`, `no_caching`, `no_memory`, `no_compaction`, `no_safety` which also turns off verify and rollback), `bench/runner.py` (`run_trial(scenario, config_name, config, lab, llm, topology, out_dir) -> TrialResult`: reset lab, inject, confirm the fault is visible, run the agent, final checks, score, revert, write the audit log and messages), `bench/report.py` (per config: n, solve rate on fixable, root-cause accuracy, pass^k with the tau-bench estimator, mean cost, cost per solved task, mean turns, cache hit rate, unnecessary-change rate on unfixable scenarios, collateral damage). Scoring: solved = all checks pass at the end (fixable) or correct category and no changes (unfixable); root-cause correct = device and category match.
 
-**W3-K `feat/cli`**: `cli.py`. `faultline lab up|down|status`, `faultline run <scenario> [--model] [--approval human|auto_approve|auto_deny] [--preset full]`, `faultline bench [--scenarios ids] [--presets full,no_subagents] [--trials 3] [--out runs/]`, `faultline report <runs dir>`.
+**W3-K `feat/cli`**: `cli.py`. `babbler lab up|down|status`, `babbler run <scenario> [--model] [--approval human|auto_approve|auto_deny] [--preset full]`, `babbler bench [--scenarios ids] [--presets full,no_subagents] [--trials 3] [--out runs/]`, `babbler report <runs dir>`.
 
 ### Wave 4 (overseer)
 

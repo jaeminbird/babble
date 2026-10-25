@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from faultline.types import HarnessConfig
+from babbler.types import HarnessConfig
 
 PRESETS: dict[str, HarnessConfig] = {
     "full": HarnessConfig(),

@@ -20,10 +20,10 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from faultline.harness.audit import AuditLog
-from faultline.netops.checks import evaluate_all, evaluate_all_after_convergence
-from faultline.netops.commands import blocked_config
-from faultline.types import Check, Event, HarnessConfig, LabBackend, LabError, ToolResult
+from babbler.harness.audit import AuditLog
+from babbler.netops.checks import evaluate_all, evaluate_all_after_convergence
+from babbler.netops.commands import blocked_config
+from babbler.types import Check, Event, HarnessConfig, LabBackend, LabError, ToolResult
 
 # Result texts are read by the model, so long lists are cut to this many entries.
 LIST_LIMIT = 8

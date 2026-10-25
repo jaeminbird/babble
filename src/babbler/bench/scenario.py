@@ -11,7 +11,7 @@ from typing import Any, get_args
 
 import yaml
 
-from faultline.types import FAULT_CATEGORIES, Check, CheckKind, LabBackend
+from babbler.types import FAULT_CATEGORIES, Check, CheckKind, LabBackend
 
 Failer = Callable[[str], ValueError]
 

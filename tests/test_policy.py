@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from faultline.harness.policy import (
+from babbler.harness.policy import (
     DECLINED_NOTE,
     AutoApprover,
     AutoDenier,
@@ -11,7 +11,7 @@ from faultline.harness.policy import (
     ScriptedApprover,
     make_approver,
 )
-from faultline.types import ToolCall, ToolResult, ToolSpec
+from babbler.types import ToolCall, ToolResult, ToolSpec
 
 
 def _spec(name: str, mutating: bool) -> ToolSpec:

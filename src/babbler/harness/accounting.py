@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import threading
 
-from faultline.llm import cost
-from faultline.types import Usage
+from babbler.llm import cost
+from babbler.types import Usage
 
 
 class Accounting:

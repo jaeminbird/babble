@@ -14,19 +14,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from faultline.bench.configs import preset
-from faultline.bench.scenario import Scenario, inject, revert_host
-from faultline.harness.accounting import Accounting
-from faultline.harness.audit import AuditLog
-from faultline.harness.loop import Agent, RunResult
-from faultline.harness.memory import NotesStore, SummaryCompactor, make_notes_tool
-from faultline.harness.policy import SafetyPolicy
-from faultline.harness.prompts import SYSTEM_PROMPT
-from faultline.lab.topology import Topology
-from faultline.netops.change import ChangeManager
-from faultline.netops.checks import evaluate_all, evaluate_all_after_convergence
-from faultline.netops.tools import build_tools
-from faultline.types import (
+from babbler.bench.configs import preset
+from babbler.bench.scenario import Scenario, inject, revert_host
+from babbler.harness.accounting import Accounting
+from babbler.harness.audit import AuditLog
+from babbler.harness.loop import Agent, RunResult
+from babbler.harness.memory import NotesStore, SummaryCompactor, make_notes_tool
+from babbler.harness.policy import SafetyPolicy
+from babbler.harness.prompts import SYSTEM_PROMPT
+from babbler.lab.topology import Topology
+from babbler.netops.change import ChangeManager
+from babbler.netops.checks import evaluate_all, evaluate_all_after_convergence
+from babbler.netops.tools import build_tools
+from babbler.types import (
     Approver,
     Check,
     HarnessConfig,
@@ -126,7 +126,7 @@ def assemble_agent(
     extra_tools: list[ToolSpec] = []
     if harness_config.subagents:
         # Lazy: the subagent module is needed only when the subagent ablation is on.
-        from faultline.harness.subagent import make_inspect_device_tool
+        from babbler.harness.subagent import make_inspect_device_tool
 
         extra_tools.append(
             make_inspect_device_tool(

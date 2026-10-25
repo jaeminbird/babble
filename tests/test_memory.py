@@ -1,19 +1,19 @@
 import json
 from pathlib import Path
 
-from faultline.harness.accounting import Accounting
-from faultline.harness.audit import AuditLog
-from faultline.harness.loop import SUBMIT_TOOL, Agent
-from faultline.harness.memory import (
+from babbler.harness.accounting import Accounting
+from babbler.harness.audit import AuditLog
+from babbler.harness.loop import SUBMIT_TOOL, Agent
+from babbler.harness.memory import (
     NO_NOTES,
     NotesStore,
     SummaryCompactor,
     make_notes_tool,
     render_transcript,
 )
-from faultline.harness.policy import AutoApprover, SafetyPolicy
-from faultline.llm import FakeLLMClient, assert_append_only, response, text, tool_use
-from faultline.types import HarnessConfig, ToolResult, ToolSpec, Usage
+from babbler.harness.policy import AutoApprover, SafetyPolicy
+from babbler.llm import FakeLLMClient, assert_append_only, response, text, tool_use
+from babbler.types import HarnessConfig, ToolResult, ToolSpec, Usage
 
 
 def _run(store: NotesStore, **tool_input) -> ToolResult:

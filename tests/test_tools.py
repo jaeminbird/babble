@@ -1,14 +1,14 @@
 import pytest
 
-from faultline.harness.audit import AuditLog
-from faultline.harness.loop import SUBMIT_TOOL, Agent
-from faultline.harness.policy import DECLINED_NOTE, SafetyPolicy, ScriptedApprover
-from faultline.lab.scripted import ScriptedLab
-from faultline.lab.topology import load_topology
-from faultline.llm import FakeLLMClient, assert_append_only, response, tool_use
-from faultline.netops.change import ChangeManager
-from faultline.netops.tools import build_tools
-from faultline.types import FAULT_CATEGORIES, Check, HarnessConfig, LabError, ToolResult, ToolSpec
+from babbler.harness.audit import AuditLog
+from babbler.harness.loop import SUBMIT_TOOL, Agent
+from babbler.harness.policy import DECLINED_NOTE, SafetyPolicy, ScriptedApprover
+from babbler.lab.scripted import ScriptedLab
+from babbler.lab.topology import load_topology
+from babbler.llm import FakeLLMClient, assert_append_only, response, tool_use
+from babbler.netops.change import ChangeManager
+from babbler.netops.tools import build_tools
+from babbler.types import FAULT_CATEGORIES, Check, HarnessConfig, LabError, ToolResult, ToolSpec
 
 TOPO = load_topology("metro")
 FIX = ["interface eth3", "no shutdown"]

@@ -1,10 +1,10 @@
-# faultline
+# babbler
 
 **Network incidents take too long to diagnose, and operators won't let AI touch production networks to help.**
 
 Models can already reason about router configs. What's missing is trust: nobody lets an agent run commands on a live router unless they know exactly what it can do, can see what it did, and can undo it. That makes it a harness problem more than a model problem.
 
-faultline is a Claude agent harness built from the raw Messages API around that constraint, plus a bench that measures two things:
+babbler is a Claude agent harness built from the raw Messages API around that constraint, plus a bench that measures two things:
 
 1. **Effectiveness:** does it find the root cause of a network fault and fix it, verified against the routers' real control-plane state, and at what cost?
 2. **Safety:** zero unapproved changes, every change verified, automatic rollback when a fix breaks something, and a tamper-evident audit trail.
@@ -63,15 +63,15 @@ Requirements: Python 3.11+, Docker, [containerlab](https://containerlab.dev), an
 pip install -e ".[dev]"
 python -m pytest            # offline: a scripted lab and a scripted model, no Docker or API
 
-faultline lab up            # deploy the metro lab and wait until it is healthy
-faultline scenarios
-faultline run next-hop-self-missing --approval human
-faultline bench --scenarios all --presets full,no_subagents --trials 3
-faultline report runs/<timestamp>/results.jsonl
-faultline lab down
+babbler lab up            # deploy the metro lab and wait until it is healthy
+babbler scenarios
+babbler run next-hop-self-missing --approval human
+babbler bench --scenarios all --presets full,no_subagents --trials 3
+babbler report runs/<timestamp>/results.jsonl
+babbler lab down
 ```
 
-**Windows.** Install the [WSL-Containerlab distro](https://containerlab.dev/windows/) and run faultline from Windows with `FAULTLINE_WSL_DISTRO=Containerlab`; it sends docker and containerlab commands through `wsl -d Containerlab`. WSL stops an idle distro, which stops the lab, so keep it alive during long runs: `wsl -d Containerlab -- sleep infinity` in another terminal, or set `instanceIdleTimeout` in `.wslconfig`.
+**Windows.** Install the [WSL-Containerlab distro](https://containerlab.dev/windows/) and run babbler from Windows with `BABBLER_WSL_DISTRO=Containerlab`; it sends docker and containerlab commands through `wsl -d Containerlab`. WSL stops an idle distro, which stops the lab, so keep it alive during long runs: `wsl -d Containerlab -- sleep infinity` in another terminal, or set `instanceIdleTimeout` in `.wslconfig`.
 
 ## Design
 
@@ -83,4 +83,4 @@ faultline lab down
 
 ## Prior art
 
-[NIKA](https://github.com/sands-lab/nika) benchmarks LLM network troubleshooting on FRR with containerlab and Kathará, scoring detection, localization and root cause. It does not fix faults or evaluate safety. [AIOpsLab](https://github.com/microsoft/AIOpsLab) and SREGym cover fault injection for Kubernetes services. [NetArena](https://github.com/Froot-NetSys/NetArena) has a safety metric but runs on Mininet. faultline adds verified fixes, a measured approval and rollback layer, control scenarios, and harness ablations.
+[NIKA](https://github.com/sands-lab/nika) benchmarks LLM network troubleshooting on FRR with containerlab and Kathará, scoring detection, localization and root cause. It does not fix faults or evaluate safety. [AIOpsLab](https://github.com/microsoft/AIOpsLab) and SREGym cover fault injection for Kubernetes services. [NetArena](https://github.com/Froot-NetSys/NetArena) has a safety metric but runs on Mininet. babbler adds verified fixes, a measured approval and rollback layer, control scenarios, and harness ablations.
