@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 
 from faultline.harness.accounting import Accounting
+from faultline.harness.audit import AuditLog
+from faultline.harness.loop import SUBMIT_TOOL, Agent
 from faultline.harness.memory import (
     NO_NOTES,
     NotesStore,
@@ -9,8 +11,9 @@ from faultline.harness.memory import (
     make_notes_tool,
     render_transcript,
 )
-from faultline.llm import FakeLLMClient, response, text
-from faultline.types import ToolResult, Usage
+from faultline.harness.policy import AutoApprover, SafetyPolicy
+from faultline.llm import FakeLLMClient, assert_append_only, response, text, tool_use
+from faultline.types import HarnessConfig, ToolResult, ToolSpec, Usage
 
 
 def _run(store: NotesStore, **tool_input) -> ToolResult:
@@ -280,3 +283,108 @@ def test_compact_never_mutates_messages():
     llm = FakeLLMClient([response(text("s"))])
     SummaryCompactor(llm, "claude-haiku-5-5", threshold=1000).compact("task", messages)
     assert messages == before
+
+
+# ------------------------------------------------------------- loop integration
+
+TASK = "ha cannot reach hb 192.168.2.10. Find the root cause."
+DIAGNOSIS = {
+    "root_cause_device": "rb",
+    "category": "interface_down",
+    "summary": "eth2 on rb is administratively down.",
+    "evidence": ["show interface eth2 on rb shows shutdown"],
+    "fix_applied": False,
+}
+
+
+def _show_spec() -> ToolSpec:
+    return ToolSpec(
+        name="show",
+        description="Read a device.",
+        input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        handler=lambda _input: ToolResult("eth2 is administratively down"),
+    )
+
+
+def _submit_spec() -> ToolSpec:
+    return ToolSpec(
+        name=SUBMIT_TOOL,
+        description="Record the diagnosis.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "root_cause_device": {"type": "string"},
+                "category": {"type": "string"},
+                "summary": {"type": "string"},
+                "evidence": {"type": "array", "items": {"type": "string"}},
+                "fix_applied": {"type": "boolean"},
+            },
+            "required": list(DIAGNOSIS),
+            "additionalProperties": False,
+        },
+        handler=lambda _input: ToolResult("Diagnosis recorded."),
+        strict=True,
+    )
+
+
+def test_agent_compacts_into_fresh_conversation_and_finishes(tmp_path: Path):
+    store = NotesStore(tmp_path / "notes.json")
+    store.append("rdc eth3 is shutdown")
+    llm = FakeLLMClient(
+        [
+            # Turn 1: small usage, one tool call.
+            response(tool_use("show", {}), usage=Usage(input_tokens=1000)),
+            # Turn 2: high usage, so the next turn compacts first.
+            response(tool_use("show", {}), usage=Usage(input_tokens=200_000)),
+            # The compactor's summary call.
+            response(text("Checked rb: eth2 is down."), model="claude-haiku-5-5"),
+            # Turn 3, in the fresh conversation: the diagnosis.
+            response(tool_use(SUBMIT_TOOL, dict(DIAGNOSIS))),
+        ]
+    )
+    accounting = Accounting()
+    audit = AuditLog()
+    compactor = SummaryCompactor(
+        llm, "claude-haiku-5-5", threshold=100_000, notes=store, accounting=accounting
+    )
+    agent = Agent(
+        llm=llm,
+        tools=[_show_spec(), _submit_spec(), make_notes_tool(store)],
+        config=HarnessConfig(),
+        policy=SafetyPolicy(),
+        approver=AutoApprover(),
+        audit=audit,
+        system_prompt="You diagnose faults.",
+        accounting=accounting,
+        compactor=compactor,
+    )
+
+    result = agent.run(TASK)
+
+    assert result.stop_reason == "diagnosis"
+    assert result.diagnosis is not None
+    assert result.diagnosis.root_cause_device == "rb"
+    assert len(audit.of_type("compaction")) == 1
+    assert accounting.calls == 4  # three agent calls and the summary call
+
+    agent_calls = [c for c in llm.calls if c["system"][0]["text"] == "You diagnose faults."]
+    summary_call = llm.calls[2]
+    before, after = agent_calls[:2], agent_calls[2]
+
+    # The summary call is a single toolless call over the transcript.
+    assert summary_call["tools"] == []
+    assert summary_call["messages"][0]["content"].startswith("USER:\n" + TASK)
+    assert "CALL show" in summary_call["messages"][0]["content"]
+
+    # The agent's first conversation grew append-only up to the compaction.
+    assert_append_only(before)
+    assert len(before[1]["messages"]) > len(before[0]["messages"])
+
+    # The call after compaction starts a new conversation with the summary and notes.
+    assert after["messages"][0]["content"] != before[0]["messages"][0]["content"]
+    assert_append_only([after])
+    assert len(after["messages"]) == 1
+    fresh = after["messages"][0]["content"]
+    assert fresh.startswith(TASK)
+    assert "<progress_summary>\nChecked rb: eth2 is down.\n</progress_summary>" in fresh
+    assert "<notes>\nrdc eth3 is shutdown\n</notes>" in fresh
