@@ -121,9 +121,8 @@ EPHEMERAL = {"type": "ephemeral"}
 class AnthropicClient:
     """LLMClient backed by the official anthropic SDK. Streams each request."""
 
-    def __init__(self, client: anthropic.Anthropic | None = None, fallbacks: bool = True):
+    def __init__(self, client: anthropic.Anthropic | None = None):
         self._client = client if client is not None else anthropic.Anthropic()
-        self.fallbacks = fallbacks
 
     def complete(
         self,
@@ -145,7 +144,7 @@ class AnthropicClient:
             effort=effort,
             cache=cache,
         )
-        if self.fallbacks and model in FALLBACK_MODELS:
+        if model in FALLBACK_MODELS:
             endpoint = self._client.beta.messages
             request_kwargs["betas"] = [FALLBACK_BETA]
             request_kwargs["fallbacks"] = "default"

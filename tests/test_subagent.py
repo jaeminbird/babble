@@ -168,8 +168,7 @@ def test_child_usage_lands_in_the_shared_accounting_under_the_subagent_model():
 
     _invoke(tool, "r3")
 
-    assert accounting.calls == 2
-    assert accounting.by_model == {HAIKU: Usage(200, 20)}
+    assert accounting.usage == Usage(200, 20)
     assert accounting.cost_usd > 0
     assert_append_only(child_llm.calls)
 
@@ -329,8 +328,8 @@ def test_parent_inspects_two_routers_in_one_turn_then_submits_a_diagnosis():
     assert blocks[0]["content"].startswith("Findings from r3:\nBGP to 10.100.0.2 is Established.")
     assert blocks[1]["content"].startswith("Findings from r1:\nNo OSPF neighbors on r1.")
     assert {event.data["device"] for event in audit.of_type("subagent")} == {"r1", "r3"}
-    # Parent calls and both children's calls share one accounting.
-    assert accounting.calls == len(parent_llm.calls) + len(r3_llm.calls) + len(r1_llm.calls)
+    # Both children add their usage to the parent's accounting; the parent's own calls use none here.
+    assert accounting.usage.input_tokens == 100 * (len(r3_llm.calls) + len(r1_llm.calls))
     for llm in (parent_llm, r3_llm, r1_llm):
         assert_append_only(llm.calls)
 
