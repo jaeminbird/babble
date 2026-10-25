@@ -205,6 +205,8 @@ class SummaryCompactor:
         if self.accounting is not None:
             self.accounting.add(summary_response.usage, summary_response.model)
         progress_summary = summary_response.text.strip()
+        if not progress_summary:
+            raise ValueError("the compaction summary call returned an empty summary")
 
         message_parts = [task, f"<progress_summary>\n{progress_summary}\n</progress_summary>"]
         if self.notes is not None:
