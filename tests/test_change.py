@@ -256,6 +256,20 @@ class RestoreAlwaysFailsLab(ScriptedLab):
         raise LabError("restore broke")
 
 
+class RestoreFailsOnceLab(ScriptedLab):
+    """The first restore fails (the automatic rollback); later restores succeed."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.restores_attempted = 0
+
+    def restore(self, device, config):
+        self.restores_attempted += 1
+        if self.restores_attempted == 1:
+            raise LabError("restore broke")
+        super().restore(device, config)
+
+
 def test_failed_automatic_rollback_is_recorded_as_failed_not_rolled_back():
     manager, _, audit = make_manager_with_lab(
         [PING_B],
@@ -394,3 +408,21 @@ def test_convergence_wait_returns_once_checks_pass_after_minimum_observation():
     result = manager.apply("r3", FIX, RATIONALE)
     assert not result.is_error
     assert sleeps == []
+
+
+def test_a_failed_automatic_rollback_can_be_retried_with_rollback():
+    manager, lab, _ = make_manager_with_lab(
+        [PING_B],
+        lab_cls=RestoreFailsOnceLab,
+        lab_overrides=_regression_overrides(),
+    )
+    failed = manager.apply("r3", FIX, RATIONALE)
+    assert failed.is_error
+    assert lab.applied_lines("r3") == FIX  # the regressing change is still on the device
+
+    retried = manager.rollback("r3")
+
+    assert not retried.is_error
+    assert lab.applied_lines("r3") == []
+    assert manager.changes[0]["rolled_back"] is True
+    assert manager.rollback("r3").is_error  # nothing left to undo

@@ -106,6 +106,21 @@ class ToolSpec:
         return api
 
 
+def object_schema(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
+    """A strict object schema. `required` defaults to every property; additional properties are
+    rejected."""
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties) if required is None else required,
+        "additionalProperties": False,
+    }
+
+
+def string_property(description: str) -> dict[str, Any]:
+    return {"type": "string", "description": description}
+
+
 # ------------------------------------------------------------------------ safety
 
 Decision = Literal["allow", "deny", "ask"]
@@ -200,6 +215,13 @@ class Event:
         return asdict(self)
 
 
+class AuditSink(Protocol):
+    """Anything that records audit events. AuditLog and TaggedAuditLog both satisfy it. Consumers
+    that only record events annotate with this, not with the file-backed AuditLog."""
+
+    def record(self, event: Event) -> None: ...
+
+
 # ------------------------------------------------------------------ diagnosis
 
 FAULT_CATEGORIES = (
@@ -224,6 +246,37 @@ class Diagnosis:
     summary: str
     evidence: list[str] = field(default_factory=list)
     fix_applied: bool = False
+
+    @classmethod
+    def from_tool_input(cls, tool_input: dict[str, Any]) -> Diagnosis:
+        """Build a Diagnosis from submit_diagnosis input. Raises ValueError naming every problem."""
+        problems: list[str] = []
+        for name in ("root_cause_device", "category", "summary"):
+            if name not in tool_input:
+                problems.append(f"missing {name}")
+            elif not isinstance(tool_input[name], str):
+                problems.append(f"{name} has the wrong type")
+        if "evidence" not in tool_input:
+            problems.append("missing evidence")
+        elif not isinstance(tool_input["evidence"], list):
+            problems.append("evidence has the wrong type")
+        if "fix_applied" not in tool_input:
+            problems.append("missing fix_applied")
+        elif not isinstance(tool_input["fix_applied"], bool):
+            problems.append("fix_applied has the wrong type")
+        if isinstance(tool_input.get("evidence"), list) and not all(
+            isinstance(item, str) for item in tool_input["evidence"]
+        ):
+            problems.append("evidence must be a list of strings")
+        if problems:
+            raise ValueError("; ".join(problems))
+        return cls(
+            root_cause_device=tool_input["root_cause_device"],
+            category=tool_input["category"],
+            summary=tool_input["summary"],
+            evidence=list(tool_input["evidence"]),
+            fix_applied=tool_input["fix_applied"],
+        )
 
 
 # --------------------------------------------------------------------- harness

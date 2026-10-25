@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import subprocess
-import sys
-import types
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -353,9 +351,3 @@ def test_wait_healthy_times_out_naming_failing_checks(topo) -> None:
         manager.wait_healthy(timeout=0, evaluate=lambda check, lab: False)
 
 
-def test_wait_healthy_lazily_imports_netops_checks(topo, monkeypatch) -> None:
-    manager, _ = make_manager(topo)
-    fake = types.ModuleType("babble.netops.checks")
-    fake.evaluate = lambda lab, check: True
-    monkeypatch.setitem(sys.modules, "babble.netops.checks", fake)
-    manager.wait_healthy(timeout=0)

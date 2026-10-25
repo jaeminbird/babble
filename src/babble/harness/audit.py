@@ -16,7 +16,7 @@ import json
 import threading
 from pathlib import Path
 
-from babble.types import Event
+from babble.types import AuditSink, Event
 
 GENESIS = "0" * 64
 
@@ -64,7 +64,7 @@ class TaggedAuditLog:
     the subagent's name: TaggedAuditLog(parent, subagent="r3").
     """
 
-    def __init__(self, parent: AuditLog, **tags: str) -> None:
+    def __init__(self, parent: AuditSink, **tags: str) -> None:
         self.parent = parent
         self.tags = tags
 

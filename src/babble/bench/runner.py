@@ -26,6 +26,7 @@ from babble.lab.topology import Topology
 from babble.netops.change import ChangeManager
 from babble.netops.checks import evaluate_all, evaluate_all_after_convergence
 from babble.netops.tools import build_tools
+from babble.polling import poll_until
 from babble.types import (
     Approver,
     Check,
@@ -135,9 +136,7 @@ def assemble_agent(
         from babble.harness.subagent import make_inspect_device_tool
 
         extra_tools.append(
-            make_inspect_device_tool(
-                llm, lab, topology, harness_config, accounting, audit, approver
-            )
+            make_inspect_device_tool(llm, lab, topology, harness_config, accounting, audit)
         )
     if notes is not None:
         extra_tools.append(make_notes_tool(notes))
@@ -262,13 +261,12 @@ def _fault_became_visible(
     sleep: Callable[[float], None],
 ) -> bool:
     """Poll the scenario's own checks until one fails, for up to `timeout_seconds`."""
-    started = time.monotonic()
-    while True:
-        if not all(evaluate_all(scenario.checks, lab).values()):
-            return True
-        if time.monotonic() - started >= timeout_seconds:
-            return False
-        sleep(POLL_INTERVAL_SECONDS)
+    return poll_until(
+        lambda: not all(evaluate_all(scenario.checks, lab).values()),
+        timeout_seconds,
+        POLL_INTERVAL_SECONDS,
+        sleep,
+    )
 
 
 def _write_messages(output_directory: Path, result: TrialResult, agent_run: RunResult) -> None:

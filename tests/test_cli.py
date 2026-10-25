@@ -52,7 +52,7 @@ class FakeLabManager:
     def destroy(self) -> None:
         self.calls.append("destroy")
 
-    def wait_healthy(self, timeout: float = 120, interval: float = 5, evaluate: Any = None) -> None:
+    def wait_healthy(self, evaluate: Any, timeout: float = 120, interval: float = 5) -> None:
         self.calls.append(f"wait_healthy({timeout:g})")
         if self.health_error is not None:
             raise LabError(self.health_error)

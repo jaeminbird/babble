@@ -95,7 +95,9 @@ def default_output_directory() -> Path:
 
 def bring_lab_to_baseline(manager: LabManager) -> None:
     """Fail fast unless the running lab is healthy, then record it as the baseline to reset to."""
-    manager.wait_healthy(timeout=LAB_READY_TIMEOUT_SECONDS, interval=LAB_POLL_INTERVAL_SECONDS)
+    manager.wait_healthy(
+        evaluate, timeout=LAB_READY_TIMEOUT_SECONDS, interval=LAB_POLL_INTERVAL_SECONDS
+    )
     manager.take_baseline()
 
 
@@ -111,7 +113,9 @@ def command_lab_up(args: argparse.Namespace) -> int:
     topology = load_topology(args.topology)
     manager = build_lab_manager(topology)
     manager.deploy()
-    manager.wait_healthy(timeout=LAB_UP_TIMEOUT_SECONDS, interval=LAB_POLL_INTERVAL_SECONDS)
+    manager.wait_healthy(
+        evaluate, timeout=LAB_UP_TIMEOUT_SECONDS, interval=LAB_POLL_INTERVAL_SECONDS
+    )
     print(f"lab {topology.name} is healthy")
     return EXIT_OK
 

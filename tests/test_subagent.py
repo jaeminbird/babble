@@ -62,7 +62,7 @@ def _tool(child_llm, lab=None, config=None, audit=None, accounting=None):
     audit = audit if audit is not None else AuditLog()
     accounting = accounting if accounting is not None else Accounting()
     config = config if config is not None else HarnessConfig()
-    tool = make_inspect_device_tool(child_llm, lab, TOPO, config, accounting, audit, AutoApprover())
+    tool = make_inspect_device_tool(child_llm, lab, TOPO, config, accounting, audit)
     return tool, lab, audit, accounting
 
 
@@ -283,7 +283,6 @@ def test_parent_inspects_two_routers_in_one_turn_then_submits_a_diagnosis():
         HarnessConfig(),
         accounting,
         audit,
-        AutoApprover(),
     )
     config = HarnessConfig()
     changes = ChangeManager(lab, [], config, audit)
@@ -334,3 +333,68 @@ def test_parent_inspects_two_routers_in_one_turn_then_submits_a_diagnosis():
     assert accounting.calls == len(parent_llm.calls) + len(r3_llm.calls) + len(r1_llm.calls)
     for llm in (parent_llm, r3_llm, r1_llm):
         assert_append_only(llm.calls)
+
+
+def test_child_tools_describe_themselves_exactly_as_before():
+    # Pins the schemas and descriptions the child model sees. Changing them changes model behaviour.
+    from babble.harness.subagent import _child_tools
+
+    assert [tool.to_api() for tool in _child_tools(_lab(), "r3")] == [
+        {
+            "name": "show",
+            "description": (
+                "Run one read-only vtysh show command on r3. Append ' json' where supported, "
+                "and query one neighbor/prefix/interface at a time."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "A show command, e.g. 'show ip route json'.",
+                    }
+                },
+                "required": ["command"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "ping",
+            "description": "Ping an IP address from r3 and get 'N/N received' with the output.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "An IP address, e.g. 10.100.0.2.",
+                    }
+                },
+                "required": ["target"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "submit_findings",
+            "description": (
+                "Record your findings and end the investigation. Call it exactly once, with a "
+                "summary that answers the question and a list of facts, each with its evidence."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "A few sentences that answer the question.",
+                    },
+                    "facts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Facts found, each with the command and key values.",
+                    },
+                },
+                "required": ["summary", "facts"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+    ]
