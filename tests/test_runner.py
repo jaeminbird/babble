@@ -334,7 +334,7 @@ def test_fault_that_never_becomes_visible_is_an_error_and_the_agent_never_runs(t
         no_fault_injected, FaultLab(), llm, ScriptedApprover([]), tmp_path, sleep=sleeps.append
     )
 
-    assert result.error == "fault did not become visible"
+    assert result.error == "fault did not become visible within 0 seconds"
     assert result.solved is False
     assert result.stop_reason is None
     assert llm.calls == []
