@@ -113,9 +113,7 @@ class ScriptedLab:
     def _is_fixed(self) -> bool:
         if not self._fix:
             return False
-        return all(
-            required <= set(self._applied[device]) for device, required in self._fix.items()
-        )
+        return all(required <= set(self._applied[device]) for device, required in self._fix.items())
 
     def applied_lines(self, device: str) -> list[str]:
         """Normalized config lines applied to `device` so far, in first-applied order."""
