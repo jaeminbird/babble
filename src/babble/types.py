@@ -123,7 +123,7 @@ def string_property(description: str) -> dict[str, Any]:
 
 # ------------------------------------------------------------------------ safety
 
-Decision = Literal["allow", "deny", "ask"]
+Decision = Literal["allow", "ask"]
 
 
 class Approver(Protocol):
@@ -205,7 +205,7 @@ class Check:
 
 @dataclass
 class Event:
-    # llm_call | tool_call | tool_result | approval | denied | rollback | verify |
+    # llm_call | tool_call | tool_result | approval | rollback | verify |
     # compaction | subagent | diagnosis | error | stop
     type: str
     data: dict[str, Any] = field(default_factory=dict)

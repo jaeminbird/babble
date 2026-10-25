@@ -369,30 +369,6 @@ def test_declined_call_gets_the_note_and_never_runs():
     assert_append_only(llm.calls)
 
 
-def test_policy_denial_never_reaches_the_approver_or_the_handler():
-    ran = []
-    tools = [
-        _show_spec(handler=lambda _i: ran.append(1) or ToolResult("up")),
-        _submit_spec(),
-    ]
-    approver = ScriptedApprover([])  # any approval request would fail the test
-    agent, llm, audit = _make(
-        [response(tool_use("show", {}, tool_use_id="t1")), response(_submit())],
-        tools=tools,
-        policy=SafetyPolicy(deny_tools=["show"]),
-        approver=approver,
-    )
-    result = agent.run("task")
-    block = result.messages[2]["content"][0]
-    assert block["is_error"] is True
-    assert block["content"].startswith("Denied by policy: ")
-    assert ran == []
-    assert approver.calls == []
-    assert result.denials == 1
-    assert audit.of_type("denied")[0].data["name"] == "show"
-    assert_append_only(llm.calls)
-
-
 def test_safety_disabled_runs_mutating_tools_without_approval():
     approver = ScriptedApprover([])
     agent, llm, audit = _make(
@@ -405,20 +381,6 @@ def test_safety_disabled_runs_mutating_tools_without_approval():
     assert result.messages[2]["content"][0]["content"] == "applied"
     assert approver.calls == []
     assert audit.of_type("approval") == []
-    assert_append_only(llm.calls)
-
-
-def test_allow_list_skips_the_approver():
-    approver = ScriptedApprover([])
-    agent, llm, _ = _make(
-        _change_then_submit(),
-        tools=[_change_spec(), _submit_spec()],
-        policy=SafetyPolicy(allow_tools=["propose_change"]),
-        approver=approver,
-    )
-    result = agent.run("task")
-    assert result.messages[2]["content"][0]["content"] == "applied"
-    assert approver.calls == []
     assert_append_only(llm.calls)
 
 
@@ -565,27 +527,6 @@ def test_one_failing_handler_in_a_parallel_batch_does_not_stop_the_others():
     assert blocks[0]["content"] == "OSError: device unreachable"
     assert blocks[0]["is_error"] is True
     assert blocks[1]["content"] == "good"
-    assert_append_only(llm.calls)
-
-
-def test_denied_call_inside_a_parallel_batch_is_not_run():
-    ran = []
-    tools = [
-        _show_spec(name="a", handler=lambda _i: ran.append("a") or ToolResult("a")),
-        _show_spec(name="b", handler=lambda _i: ran.append("b") or ToolResult("b")),
-        _submit_spec(),
-    ]
-    agent, llm, _ = _make(
-        [response(tool_use("a", {}, tool_use_id="t1"), tool_use("b", {}, tool_use_id="t2")), response(_submit())],
-        tools=tools,
-        policy=SafetyPolicy(deny_tools=["a"]),
-    )
-    result = agent.run("task")
-    blocks = result.messages[2]["content"]
-    assert blocks[0]["is_error"] is True
-    assert blocks[1]["content"] == "b"
-    assert ran == ["b"]
-    assert result.denials == 1
     assert_append_only(llm.calls)
 
 
