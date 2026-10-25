@@ -8,15 +8,15 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-import time
 from collections.abc import Callable
 from pathlib import Path
 
 from babble.lab.topology import Topology
+from babble.polling import poll_until
 from babble.types import Check, LabBackend, LabError, PingResult
 
 # Decides whether one health check passes on a running lab. Matches the shape of
-# babble.netops.checks.evaluate, which is imported lazily when no callable is given.
+# babble.netops.checks.evaluate.
 Evaluate = Callable[[Check, LabBackend], bool]
 
 WSL_PREFIX_ENV = "BABBLE_WSL_DISTRO"
@@ -193,31 +193,22 @@ class LabManager:
             detail = _error_text(completed_process, f"exit {completed_process.returncode}")
             raise LabError(f"containerlab {args[0]} failed: {detail}")
 
-    def wait_healthy(
-        self,
-        timeout: float = 120,
-        interval: float = 5,
-        evaluate: Evaluate | None = None,
-    ) -> None:
+    def wait_healthy(self, evaluate: Evaluate, timeout: float = 120, interval: float = 5) -> None:
         """Poll every health check until all pass. Raises LabError when time runs out."""
-        if evaluate is None:
-            # Lazy: netops.checks is written separately and may not exist on every branch.
-            from babble.netops.checks import evaluate as default_evaluate
+        failing_checks_at_last_poll: list[Check] = []
 
-            evaluate = default_evaluate
-        deadline = time.monotonic() + timeout
-        while True:
-            failing_checks = [
+        def all_health_checks_pass() -> bool:
+            nonlocal failing_checks_at_last_poll
+            failing_checks_at_last_poll = [
                 check
                 for check in self.topology.health_checks
                 if not _check_is_passing(evaluate, self.lab, check)
             ]
-            if not failing_checks:
-                return
-            if time.monotonic() >= deadline:
-                names = ", ".join(check.describe() for check in failing_checks)
-                raise LabError(f"lab not healthy after {timeout}s; failing: {names}")
-            time.sleep(interval)
+            return not failing_checks_at_last_poll
+
+        if not poll_until(all_health_checks_pass, timeout, interval):
+            names = ", ".join(check.describe() for check in failing_checks_at_last_poll)
+            raise LabError(f"lab not healthy after {timeout}s; failing: {names}")
 
     def take_baseline(self) -> None:
         self._baseline_snapshots_by_router = {
