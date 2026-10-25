@@ -6,6 +6,8 @@ import copy
 import itertools
 from typing import Any
 
+import anthropic
+
 from faultline.types import LLMResponse, Usage
 
 # $ per 1M tokens: (input, output)
@@ -106,6 +108,97 @@ def response(
         stop_reason=stop_reason,
         usage=usage or Usage(),
         model=model,
+    )
+
+
+# ----------------------------------------------------------------- Anthropic
+
+FALLBACK_MODELS = frozenset({"claude-opus-5-5", "claude-sonnet-5-5"})
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+EPHEMERAL = {"type": "ephemeral"}
+
+
+class AnthropicClient:
+    """LLMClient backed by the official anthropic SDK. Streams each request."""
+
+    def __init__(self, client: anthropic.Anthropic | None = None, fallbacks: bool = True):
+        self._client = client if client is not None else anthropic.Anthropic()
+        self.fallbacks = fallbacks
+
+    def complete(
+        self,
+        *,
+        model: str,
+        system: list[dict[str, Any]],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        max_tokens: int,
+        effort: str | None = None,
+        cache: bool = True,
+    ) -> LLMResponse:
+        kwargs = _request_kwargs(
+            model=model,
+            system=system,
+            messages=messages,
+            tools=tools,
+            max_tokens=max_tokens,
+            effort=effort,
+            cache=cache,
+        )
+        if self.fallbacks and model in FALLBACK_MODELS:
+            endpoint = self._client.beta.messages
+            kwargs["betas"] = [FALLBACK_BETA]
+            kwargs["fallbacks"] = "default"
+        else:
+            endpoint = self._client.messages
+        with endpoint.stream(**kwargs) as stream:
+            final = stream.get_final_message()
+        return _to_response(final)
+
+
+def _request_kwargs(
+    *,
+    model: str,
+    system: list[dict[str, Any]],
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    max_tokens: int,
+    effort: str | None,
+    cache: bool,
+) -> dict[str, Any]:
+    # Copy the system blocks so the caller's list is never mutated.
+    system_blocks = copy.deepcopy(system)
+    if cache and system_blocks:
+        system_blocks[-1]["cache_control"] = dict(EPHEMERAL)
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": system_blocks,
+        "messages": messages,
+        "thinking": {"type": "adaptive"},
+    }
+    if tools:
+        kwargs["tools"] = tools
+    if effort:
+        kwargs["output_config"] = {"effort": effort}
+    if cache:
+        # Top-level cache_control caches the conversation tail as well as the system prompt.
+        kwargs["cache_control"] = dict(EPHEMERAL)
+    return kwargs
+
+
+def _to_response(final: Any) -> LLMResponse:
+    usage = final.usage
+    return LLMResponse(
+        content=[block.model_dump(mode="json", exclude_none=True) for block in final.content],
+        stop_reason=final.stop_reason,
+        usage=Usage(
+            input_tokens=usage.input_tokens or 0,
+            output_tokens=usage.output_tokens or 0,
+            cache_creation_input_tokens=usage.cache_creation_input_tokens or 0,
+            cache_read_input_tokens=usage.cache_read_input_tokens or 0,
+        ),
+        model=final.model,
     )
 
 

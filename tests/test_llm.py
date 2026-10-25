@@ -1,7 +1,12 @@
+import copy
+from types import SimpleNamespace
+
 import pytest
+from anthropic.types import TextBlock, ToolUseBlock
 
 from faultline.llm import (
     PRICING,
+    AnthropicClient,
     FakeLLMClient,
     assert_append_only,
     cost,
@@ -200,3 +205,171 @@ def test_append_only_accepts_fake_client_recordings():
     _call(client, messages=[USER])
     _call(client, messages=[USER, ASSISTANT, RESULT])
     assert_append_only(client.calls)
+
+
+# ------------------------------------------------------------------ AnthropicClient
+
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+SYSTEM = [{"type": "text", "text": "You are a network agent."}, {"type": "text", "text": "Rules."}]
+TOOL = {"name": "show", "description": "Run a show command", "input_schema": {"type": "object"}}
+
+
+class _FakeStream:
+    def __init__(self, final):
+        self._final = final
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get_final_message(self):
+        return self._final
+
+
+class _Endpoint:
+    """Stands in for client.messages or client.beta.messages. Records stream() kwargs."""
+
+    def __init__(self, final):
+        self._final = final
+        self.kwargs = None
+
+    def stream(self, **kwargs):
+        self.kwargs = kwargs
+        return _FakeStream(self._final)
+
+
+class _StubAnthropic:
+    def __init__(self, final):
+        self.messages = _Endpoint(final)
+        self.beta = SimpleNamespace(messages=_Endpoint(final))
+
+
+def _final(
+    *blocks,
+    stop_reason="end_turn",
+    model="claude-haiku-5-5",
+    usage=None,
+):
+    return SimpleNamespace(
+        content=list(blocks),
+        stop_reason=stop_reason,
+        model=model,
+        usage=usage
+        or SimpleNamespace(
+            input_tokens=10,
+            output_tokens=5,
+            cache_creation_input_tokens=None,
+            cache_read_input_tokens=None,
+        ),
+    )
+
+
+def _complete(stub, model="claude-haiku-5-5", fallbacks=True, **overrides):
+    client = AnthropicClient(stub, fallbacks=fallbacks)
+    kwargs = {
+        "model": model,
+        "system": SYSTEM,
+        "messages": [USER],
+        "tools": [TOOL],
+        "max_tokens": 1000,
+    }
+    kwargs.update(overrides)
+    return client.complete(**kwargs)
+
+
+def test_request_uses_plain_stream_with_caching_thinking_and_effort():
+    stub = _StubAnthropic(_final(TextBlock(type="text", text="ok", citations=None)))
+    original_system = copy.deepcopy(SYSTEM)
+
+    _complete(stub, effort="high")
+
+    assert stub.beta.messages.kwargs is None
+    assert stub.messages.kwargs == {
+        "model": "claude-haiku-5-5",
+        "max_tokens": 1000,
+        "system": [
+            {"type": "text", "text": "You are a network agent."},
+            {"type": "text", "text": "Rules.", "cache_control": {"type": "ephemeral"}},
+        ],
+        "messages": [USER],
+        "tools": [TOOL],
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": "high"},
+        "cache_control": {"type": "ephemeral"},
+    }
+    assert SYSTEM == original_system
+
+
+def test_cache_false_and_no_effort_omit_cache_and_output_config():
+    stub = _StubAnthropic(_final(TextBlock(type="text", text="ok", citations=None)))
+
+    _complete(stub, cache=False, tools=[])
+
+    kwargs = stub.messages.kwargs
+    assert "cache_control" not in kwargs
+    assert "output_config" not in kwargs
+    assert "tools" not in kwargs
+    assert kwargs["system"] == SYSTEM
+    assert kwargs["thinking"] == {"type": "adaptive"}
+
+
+@pytest.mark.parametrize("model", ["claude-opus-5-5", "claude-sonnet-5-5"])
+def test_opus_and_sonnet_use_beta_stream_with_server_fallbacks(model):
+    stub = _StubAnthropic(_final(TextBlock(type="text", text="ok", citations=None)))
+
+    _complete(stub, model=model)
+
+    assert stub.messages.kwargs is None
+    kwargs = stub.beta.messages.kwargs
+    assert kwargs["betas"] == [FALLBACK_BETA]
+    assert kwargs["fallbacks"] == "default"
+    assert kwargs["model"] == model
+
+
+@pytest.mark.parametrize(
+    ("model", "fallbacks"),
+    [("claude-haiku-5-5", True), ("claude-opus-5-5", False)],
+)
+def test_plain_stream_when_model_has_no_fallback_or_fallbacks_disabled(model, fallbacks):
+    stub = _StubAnthropic(_final(TextBlock(type="text", text="ok", citations=None)))
+
+    _complete(stub, model=model, fallbacks=fallbacks)
+
+    assert stub.beta.messages.kwargs is None
+    assert "fallbacks" not in stub.messages.kwargs
+    assert "betas" not in stub.messages.kwargs
+
+
+def test_response_blocks_are_plain_dicts_and_metadata_is_mapped():
+    final = _final(
+        TextBlock(type="text", text="checking", citations=None),
+        ToolUseBlock(type="tool_use", id="toolu_1", name="show", input={"device": "r1"}),
+        stop_reason="tool_use",
+        model="claude-sonnet-5-5",
+        usage=SimpleNamespace(
+            input_tokens=100,
+            output_tokens=20,
+            cache_creation_input_tokens=300,
+            cache_read_input_tokens=None,
+        ),
+    )
+    stub = _StubAnthropic(final)
+
+    resp = _complete(stub, model="claude-sonnet-5-5")
+
+    assert resp.content == [
+        {"type": "text", "text": "checking"},
+        {"type": "tool_use", "id": "toolu_1", "name": "show", "input": {"device": "r1"}},
+    ]
+    assert resp.stop_reason == "tool_use"
+    assert resp.model == "claude-sonnet-5-5"
+    assert resp.text == "checking"
+    assert [c.id for c in resp.tool_calls] == ["toolu_1"]
+    assert resp.usage == Usage(
+        input_tokens=100,
+        output_tokens=20,
+        cache_creation_input_tokens=300,
+        cache_read_input_tokens=0,
+    )
