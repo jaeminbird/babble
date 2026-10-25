@@ -17,14 +17,14 @@ DEFAULT_LABS_DIR = REPO_ROOT / "labs"
 @dataclass
 class Topology:
     name: str
-    dir: Path
+    lab_directory: Path
     devices: dict[str, dict[str, Any]]
     links: list[dict[str, Any]]
     health_checks: list[Check]
 
     @property
     def clab_file(self) -> Path:
-        return self.dir / f"{self.name}.clab.yml"
+        return self.lab_directory / f"{self.name}.clab.yml"
 
     def routers(self) -> list[str]:
         return self._device_names_of_kind("router")
@@ -74,7 +74,7 @@ def load_topology(name: str, labs_dir: Path | None = None) -> Topology:
         raise ValueError(f"{meta_path}: meta.yaml must be a non-empty mapping")
     return Topology(
         name=meta_yaml.get("name", name),
-        dir=lab_dir,
+        lab_directory=lab_dir,
         devices=dict(meta_yaml.get("devices") or {}),
         links=list(meta_yaml.get("links") or []),
         health_checks=[

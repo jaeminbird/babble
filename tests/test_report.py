@@ -6,8 +6,8 @@ from babble.bench.report import (
     load_results,
     pass_at_k,
     pass_hat_k,
-    per_scenario_table,
     render_markdown_table,
+    solved_counts_by_scenario_table,
     summarize_by_preset,
 )
 from babble.bench.runner import TrialResult
@@ -226,6 +226,6 @@ def test_per_scenario_table_counts_solved_over_trials_per_preset():
         {"scenario_id": "b", "preset_name": "full", "solved": True},
     ]
 
-    assert per_scenario_table(results) == (
+    assert solved_counts_by_scenario_table(results) == (
         "| scenario | full | no_memory |\n|---|---|---|\n| a | 1/2 | 1/1 |\n| b | 1/1 | - |"
     )

@@ -99,7 +99,7 @@ def render_markdown_table(rows: Sequence[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def per_scenario_table(results: Sequence[dict[str, Any]]) -> str:
+def solved_counts_by_scenario_table(results: Sequence[dict[str, Any]]) -> str:
     """Rows are scenarios, columns are presets, and each cell is "solved/trials"."""
     presets = list(_group_rows_by(results, "preset_name"))
     rows: list[dict[str, Any]] = []

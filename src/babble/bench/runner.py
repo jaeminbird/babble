@@ -14,8 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from babble.bench.configs import preset
-from babble.bench.scenario import Scenario, inject, revert_host
+from babble.bench.configs import harness_config_for_preset
+from babble.bench.scenario import Scenario, inject_fault, revert_host_side_fault
 from babble.harness.accounting import Accounting
 from babble.harness.audit import AuditLog
 from babble.harness.loop import Agent, RunResult
@@ -205,7 +205,7 @@ def run_trial(
     try:
         reset_lab_to_baseline()
         baseline_results = settled_results()
-        inject(scenario, lab)
+        inject_fault(scenario, lab)
         if scenario.fixable:
             if not _fault_became_visible(scenario, lab, fault_visibility_timeout_seconds, sleep):
                 result.error = (
@@ -250,7 +250,7 @@ def run_trial(
     except Exception as exc:  # noqa: BLE001 - recorded in the result; the trial must still revert
         result.error = f"{type(exc).__name__}: {exc}"
     finally:
-        revert_host(scenario, lab)
+        revert_host_side_fault(scenario, lab)
     return result
 
 
@@ -365,7 +365,7 @@ def run_matrix(
     with open(results_path, "x", encoding="utf-8", newline="\n") as results_file:
         for scenario in scenarios:
             for preset_name in preset_names:
-                harness_config = preset(preset_name, model=model)
+                harness_config = harness_config_for_preset(preset_name, model=model)
                 for trial_index in range(1, trials + 1):
                     result = run_trial(
                         scenario,

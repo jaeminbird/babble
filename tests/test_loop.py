@@ -51,7 +51,7 @@ def _show_spec(handler=None, **kwargs: Any) -> ToolSpec:
 
 
 def _submit(tool_use_id: str | None = None) -> dict[str, Any]:
-    return tool_use(SUBMIT_TOOL, dict(DIAGNOSIS), id=tool_use_id)
+    return tool_use(SUBMIT_TOOL, dict(DIAGNOSIS), tool_use_id=tool_use_id)
 
 
 def _make(
@@ -83,7 +83,7 @@ def _types(audit: AuditLog) -> list[str]:
 
 
 def test_reads_then_submits_and_stops_with_diagnosis():
-    first = response(tool_use("show", {"device": "r3"}, id="toolu_a"))
+    first = response(tool_use("show", {"device": "r3"}, tool_use_id="toolu_a"))
     agent, llm, audit = _make([first, response(_submit(tool_use_id="toolu_b"))])
     result = agent.run("eth3 is down")
 
@@ -113,7 +113,7 @@ def test_reads_then_submits_and_stops_with_diagnosis():
 
 
 def test_request_shape_on_every_call():
-    agent, llm, _ = _make([response(tool_use("show", {}, id="t1")), response(_submit())])
+    agent, llm, _ = _make([response(tool_use("show", {}, tool_use_id="t1")), response(_submit())])
     agent.run("task")
 
     first, second = llm.calls
@@ -152,7 +152,7 @@ def test_usage_and_cost_are_accumulated():
 
 def test_unknown_tool_gets_an_error_result_and_the_run_goes_on():
     agent, llm, audit = _make(
-        [response(tool_use("reboot_router", {}, id="t1")), response(_submit())]
+        [response(tool_use("reboot_router", {}, tool_use_id="t1")), response(_submit())]
     )
     result = agent.run("task")
     block = result.messages[2]["content"][0]
@@ -172,7 +172,7 @@ def test_handler_exception_becomes_error_result_and_does_not_crash():
         raise ValueError("boom")
 
     agent, llm, _ = _make(
-        [response(tool_use("show", {}, id="t1")), response(_submit())],
+        [response(tool_use("show", {}, tool_use_id="t1")), response(_submit())],
         tools=[_show_spec(handler=boom), _submit_spec()],
     )
     result = agent.run("task")
@@ -187,7 +187,7 @@ def test_tool_output_is_truncated_before_it_enters_history():
     big = "y" * 5000
     tools = [_show_spec(handler=lambda _i: ToolResult(big)), _submit_spec()]
     agent, llm, audit = _make(
-        [response(tool_use("show", {}, id="t1")), response(_submit())], tools=tools
+        [response(tool_use("show", {}, tool_use_id="t1")), response(_submit())], tools=tools
     )
     result = agent.run("task")
     content = result.messages[2]["content"][0]["content"]
@@ -202,7 +202,7 @@ def test_truncation_off_keeps_full_output():
     tools = [_show_spec(handler=lambda _i: ToolResult(big)), _submit_spec()]
     config = HarnessConfig(truncate_tool_output=None)
     agent, llm, _ = _make(
-        [response(tool_use("show", {}, id="t1")), response(_submit())], tools=tools, config=config
+        [response(tool_use("show", {}, tool_use_id="t1")), response(_submit())], tools=tools, config=config
     )
     result = agent.run("task")
     assert result.messages[2]["content"][0]["content"] == big
@@ -235,8 +235,8 @@ def test_max_turns_stops_the_run():
     config = HarnessConfig(max_turns=2)
     agent, llm, audit = _make(
         [
-            response(tool_use("show", {}, id="t1")),
-            response(tool_use("show", {}, id="t2")),
+            response(tool_use("show", {}, tool_use_id="t1")),
+            response(tool_use("show", {}, tool_use_id="t2")),
         ],
         config=config,
     )
@@ -318,7 +318,7 @@ def _change_spec(handler=None) -> ToolSpec:
 
 def _change_then_submit(change_input: dict | None = None) -> list[LLMResponse]:
     return [
-        response(tool_use("propose_change", change_input or {"lines": ["x"]}, id="t1")),
+        response(tool_use("propose_change", change_input or {"lines": ["x"]}, tool_use_id="t1")),
         response(_submit()),
     ]
 
@@ -377,7 +377,7 @@ def test_policy_denial_never_reaches_the_approver_or_the_handler():
     ]
     approver = ScriptedApprover([])  # any approval request would fail the test
     agent, llm, audit = _make(
-        [response(tool_use("show", {}, id="t1")), response(_submit())],
+        [response(tool_use("show", {}, tool_use_id="t1")), response(_submit())],
         tools=tools,
         policy=SafetyPolicy(deny_tools=["show"]),
         approver=approver,
@@ -446,7 +446,7 @@ def test_pre_hook_can_short_circuit_a_call():
         return ToolResult("cached: up") if call.name == "show" else None
 
     agent, llm, _ = _make(
-        [response(tool_use("show", {}, id="t1")), response(_submit())],
+        [response(tool_use("show", {}, tool_use_id="t1")), response(_submit())],
         tools=tools,
         pre_hooks=[cached],
     )
@@ -461,7 +461,7 @@ def test_post_hook_can_replace_a_result_and_a_failing_hook_is_an_error():
         return ToolResult("[redacted]")
 
     agent, llm, _ = _make(
-        [response(tool_use("show", {}, id="t1")), response(_submit())],
+        [response(tool_use("show", {}, tool_use_id="t1")), response(_submit())],
         post_hooks=[redact],
     )
     result = agent.run("task")
@@ -472,7 +472,7 @@ def test_post_hook_can_replace_a_result_and_a_failing_hook_is_an_error():
         raise KeyError("oops")
 
     agent, llm, _ = _make(
-        [response(tool_use("show", {}, id="t1")), response(_submit())],
+        [response(tool_use("show", {}, tool_use_id="t1")), response(_submit())],
         post_hooks=[broken],
     )
     result = agent.run("task")
@@ -499,7 +499,7 @@ def test_read_only_batch_runs_concurrently_and_keeps_call_order():
     ] + [_submit_spec()]
     agent, llm, _ = _make(
         [
-            response(tool_use("show_a", {}, id="ta"), tool_use("show_b", {}, id="tb")),
+            response(tool_use("show_a", {}, tool_use_id="ta"), tool_use("show_b", {}, tool_use_id="tb")),
             response(_submit()),
         ],
         tools=tools,
@@ -533,7 +533,7 @@ def test_results_keep_call_order_when_a_later_call_finishes_first():
     ]
     agent, llm, _ = _make(
         [
-            response(tool_use("slow", {}, id="t1"), tool_use("fast", {}, id="t2")),
+            response(tool_use("slow", {}, tool_use_id="t1"), tool_use("fast", {}, tool_use_id="t2")),
             response(_submit()),
         ],
         tools=tools,
@@ -555,7 +555,7 @@ def test_one_failing_handler_in_a_parallel_batch_does_not_stop_the_others():
     ]
     agent, llm, _ = _make(
         [
-            response(tool_use("bad", {}, id="t1"), tool_use("good", {}, id="t2")),
+            response(tool_use("bad", {}, tool_use_id="t1"), tool_use("good", {}, tool_use_id="t2")),
             response(_submit()),
         ],
         tools=tools,
@@ -576,7 +576,7 @@ def test_denied_call_inside_a_parallel_batch_is_not_run():
         _submit_spec(),
     ]
     agent, llm, _ = _make(
-        [response(tool_use("a", {}, id="t1"), tool_use("b", {}, id="t2")), response(_submit())],
+        [response(tool_use("a", {}, tool_use_id="t1"), tool_use("b", {}, tool_use_id="t2")), response(_submit())],
         tools=tools,
         policy=SafetyPolicy(deny_tools=["a"]),
     )
@@ -599,7 +599,7 @@ def test_mixed_batch_with_a_mutating_tool_runs_in_order_and_asks_inline():
     approver = ScriptedApprover([True])
     agent, llm, audit = _make(
         [
-            response(tool_use("show", {}, id="t1"), tool_use("propose_change", {}, id="t2")),
+            response(tool_use("show", {}, tool_use_id="t1"), tool_use("propose_change", {}, tool_use_id="t2")),
             response(_submit()),
         ],
         tools=tools,
@@ -618,7 +618,7 @@ def test_mixed_batch_with_a_mutating_tool_runs_in_order_and_asks_inline():
 def test_submit_with_a_read_in_one_turn_still_records_the_diagnosis():
     tools = [_show_spec(), _submit_spec()]
     agent, llm, _ = _make(
-        [response(tool_use("show", {}, id="t1"), _submit(tool_use_id="t2"))], tools=tools
+        [response(tool_use("show", {}, tool_use_id="t1"), _submit(tool_use_id="t2"))], tools=tools
     )
     result = agent.run("task")
     assert result.stop_reason == "diagnosis"
@@ -649,7 +649,7 @@ def test_max_tokens_answers_each_cut_off_call_without_running_it():
     ]
     agent, llm, _ = _make(
         [
-            response(tool_use("show", {"device": "r"}, id="t1"), stop_reason="max_tokens"),
+            response(tool_use("show", {"device": "r"}, tool_use_id="t1"), stop_reason="max_tokens"),
             response(_submit()),
         ],
         tools=tools,
@@ -675,7 +675,7 @@ def test_max_tokens_answers_each_cut_off_call_without_running_it():
 def test_submit_with_missing_fields_is_an_error_the_model_can_fix():
     partial = {"root_cause_device": "r3", "category": "interface_down"}
     agent, llm, audit = _make(
-        [response(tool_use(SUBMIT_TOOL, partial, id="t1")), response(_submit(tool_use_id="t2"))]
+        [response(tool_use(SUBMIT_TOOL, partial, tool_use_id="t1")), response(_submit(tool_use_id="t2"))]
     )
     result = agent.run("task")
     first = result.messages[2]["content"][0]
@@ -692,7 +692,7 @@ def test_submit_with_missing_fields_is_an_error_the_model_can_fix():
 def test_submit_with_wrong_types_is_rejected():
     bad = dict(DIAGNOSIS, evidence="a single string", fix_applied="yes")
     agent, llm, _ = _make(
-        [response(tool_use(SUBMIT_TOOL, bad, id="t1")), response(_submit(tool_use_id="t2"))]
+        [response(tool_use(SUBMIT_TOOL, bad, tool_use_id="t1")), response(_submit(tool_use_id="t2"))]
     )
     result = agent.run("task")
     content = result.messages[2]["content"][0]["content"]
@@ -709,7 +709,7 @@ def test_calls_after_a_submission_in_the_same_turn_do_not_run():
         _submit_spec(),
     ]
     agent, llm, _ = _make(
-        [response(_submit(tool_use_id="t1"), tool_use("propose_change", {}, id="t2"))],
+        [response(_submit(tool_use_id="t1"), tool_use("propose_change", {}, tool_use_id="t2"))],
         tools=tools,
         approver=ScriptedApprover([]),  # would fail the test if the change were gated
     )
@@ -744,7 +744,7 @@ def test_compaction_starts_a_fresh_conversation_and_is_audited():
     compactor = _CompactAfterFirstTurn()
     usage = Usage(input_tokens=500)
     agent, llm, audit = _make(
-        [response(tool_use("show", {}, id="t1"), usage=usage), response(_submit())],
+        [response(tool_use("show", {}, tool_use_id="t1"), usage=usage), response(_submit())],
         compactor=compactor,
     )
     result = agent.run("task")
@@ -782,9 +782,9 @@ def _finish_spec(name: str = "submit_findings", handler=None) -> ToolSpec:
 
 
 def test_custom_finish_tool_ends_the_run_and_keeps_its_input():
-    finish = tool_use("submit_findings", dict(FINDINGS), id="t2")
+    finish = tool_use("submit_findings", dict(FINDINGS), tool_use_id="t2")
     agent, llm, audit = _make(
-        [response(tool_use("show", {}, id="t1")), response(finish)],
+        [response(tool_use("show", {}, tool_use_id="t1")), response(finish)],
         tools=[_show_spec(), _finish_spec()],
         finish_tool_name="submit_findings",
     )
@@ -802,7 +802,7 @@ def test_custom_finish_tool_ends_the_run_and_keeps_its_input():
 def test_custom_finish_tool_input_is_not_validated_as_a_diagnosis():
     # Diagnosis validation applies to submit_diagnosis only.
     agent, _, _ = _make(
-        [response(tool_use("submit_findings", {"anything": 1}, id="t1"))],
+        [response(tool_use("submit_findings", {"anything": 1}, tool_use_id="t1"))],
         tools=[_finish_spec()],
         finish_tool_name="submit_findings",
     )
@@ -815,8 +815,8 @@ def test_failed_custom_finish_call_does_not_end_the_run():
     results = iter([ToolResult("not ready", is_error=True), ToolResult("Findings recorded.")])
     agent, _, _ = _make(
         [
-            response(tool_use("submit_findings", dict(FINDINGS), id="t1")),
-            response(tool_use("submit_findings", dict(FINDINGS), id="t2")),
+            response(tool_use("submit_findings", dict(FINDINGS), tool_use_id="t1")),
+            response(tool_use("submit_findings", dict(FINDINGS), tool_use_id="t2")),
         ],
         tools=[_finish_spec(handler=lambda _input: next(results))],
         finish_tool_name="submit_findings",
@@ -852,8 +852,8 @@ def test_calls_after_a_custom_finish_in_the_same_turn_do_not_run():
     agent, _, _ = _make(
         [
             response(
-                tool_use("submit_findings", dict(FINDINGS), id="t1"),
-                tool_use("propose_change", {}, id="t2"),
+                tool_use("submit_findings", dict(FINDINGS), tool_use_id="t1"),
+                tool_use("propose_change", {}, tool_use_id="t2"),
             )
         ],
         tools=[change, _finish_spec()],

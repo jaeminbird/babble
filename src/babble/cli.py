@@ -13,11 +13,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from babble.bench.configs import PRESETS, preset
+from babble.bench.configs import PRESETS, harness_config_for_preset
 from babble.bench.report import (
     load_results,
-    per_scenario_table,
     render_markdown_table,
+    solved_counts_by_scenario_table,
     summarize_by_preset,
 )
 from babble.bench.runner import TrialResult, run_matrix, run_trial
@@ -62,7 +62,7 @@ def build_llm_client() -> LLMClient:
 # ------------------------------------------------------------------- selection
 
 
-def scenarios_named(scenario_ids: list[str]) -> list[Scenario]:
+def scenarios_for_ids(scenario_ids: list[str]) -> list[Scenario]:
     scenarios_by_id = {scenario.id: scenario for scenario in load_all()}
     unknown = [name for name in scenario_ids if name not in scenarios_by_id]
     if unknown:
@@ -77,7 +77,7 @@ def validated_preset_names(preset_names: list[str]) -> list[str]:
     unknown = [name for name in preset_names if name not in PRESETS]
     if unknown:
         raise UsageError(
-            f"unknown preset(s): {', '.join(unknown)}; valid presets: {', '.join(PRESETS)}"
+            f"unknown harness_config_for_preset(s): {', '.join(unknown)}; valid presets: {', '.join(PRESETS)}"
         )
     return preset_names
 
@@ -150,9 +150,9 @@ def command_scenarios(_: argparse.Namespace) -> int:
 
 
 def command_run(args: argparse.Namespace) -> int:
-    scenario = scenarios_named([args.scenario_id])[0]
+    scenario = scenarios_for_ids([args.scenario_id])[0]
     preset_name = validated_preset_names([args.preset])[0]
-    harness_config = preset(preset_name, model=args.model)
+    harness_config = harness_config_for_preset(preset_name, model=args.model)
     output_directory = Path(args.output_directory or default_output_directory())
     topology, manager = default_lab_at_baseline()
     result = run_trial(
@@ -175,7 +175,7 @@ def command_run(args: argparse.Namespace) -> int:
 
 def command_bench(args: argparse.Namespace) -> int:
     scenarios = (
-        load_all() if args.scenarios == "all" else scenarios_named(split_comma_list(args.scenarios))
+        load_all() if args.scenarios == "all" else scenarios_for_ids(split_comma_list(args.scenarios))
     )
     preset_names = validated_preset_names(split_comma_list(args.presets))
     output_directory = Path(args.output_directory or default_output_directory())
@@ -252,7 +252,7 @@ def render_report(results: list[dict[str, Any]]) -> str:
             "",
             "## Solved per scenario",
             "",
-            per_scenario_table(results),
+            solved_counts_by_scenario_table(results),
             "",
         ]
     )

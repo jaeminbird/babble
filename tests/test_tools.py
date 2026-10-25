@@ -231,14 +231,14 @@ def test_propose_change_rejects_lines_that_are_not_strings():
     result = call_tool(tools, "propose_change", device="r3", lines="interface eth3", rationale="x")
     assert result.is_error
     assert "lines must be a list of strings" in result.content
-    assert lab.config_calls == []
+    assert lab.configure_calls == []
 
 
 def test_propose_change_rejects_empty_lines():
     tools, lab, *_ = make_tools_with_lab()
     result = call_tool(tools, "propose_change", device="r3", lines=[], rationale="x")
     assert result.is_error
-    assert lab.config_calls == []
+    assert lab.configure_calls == []
 
 
 def test_propose_change_rejects_a_host_and_an_unknown_device():
@@ -247,7 +247,7 @@ def test_propose_change_rejects_a_host_and_an_unknown_device():
     result = call_tool(tools, "propose_change", device="nope", lines=FIX, rationale="x")
     assert result.is_error
     assert "Valid devices:" in result.content
-    assert lab.config_calls == []
+    assert lab.configure_calls == []
 
 
 def test_propose_change_blocked_line_is_an_error_and_nothing_applies():
@@ -255,7 +255,7 @@ def test_propose_change_blocked_line_is_an_error_and_nothing_applies():
     result = call_tool(tools, "propose_change", device="r3", lines=["hostname evil"], rationale="x")
     assert result.is_error
     assert "blocked config line" in result.content
-    assert lab.config_calls == []
+    assert lab.configure_calls == []
 
 
 # ----------------------------------------------------------------- rollback
@@ -399,7 +399,7 @@ def test_agent_stays_broken_when_the_operator_declines_the_change():
     assert result.diagnosis is not None
     assert result.diagnosis.fix_applied is False
     assert lab.state == "broken"
-    assert lab.config_calls == []
+    assert lab.configure_calls == []
     assert result.approvals == 0
     assert result.denials == 1
     assert audit.of_type("change_applied") == []

@@ -20,7 +20,7 @@ def completed(
 
 
 class FakeRunner(CommandRunner):
-    """Records every argv it is asked to run. `handler(argv, input)` supplies the result."""
+    """Records every argv it is asked to run. `handler(argv, stdin_text)` supplies the result."""
 
     def __init__(
         self,
@@ -30,16 +30,16 @@ class FakeRunner(CommandRunner):
         super().__init__(prefix)
         self.handler = handler
         self.calls: list[list[str]] = []
-        self.inputs: list[str | None] = []
+        self.stdin_texts: list[str | None] = []
 
     def run(
-        self, argv: list[str], input: str | None = None, timeout: float = 60
+        self, argv: list[str], stdin_text: str | None = None, timeout: float = 60
     ) -> subprocess.CompletedProcess[str]:
         self.calls.append(list(argv))
-        self.inputs.append(input)
+        self.stdin_texts.append(stdin_text)
         if self.handler is None:
             return completed(argv)
-        return self.handler(list(argv), input)
+        return self.handler(list(argv), stdin_text)
 
 
 # ----------------------------------------------------------------- CommandRunner
@@ -72,7 +72,7 @@ def test_run_prepends_prefix_and_passes_stdin(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(clab.subprocess, "run", fake_run)
     runner = CommandRunner(["wsl", "--"])
-    result = runner.run(["docker", "exec", "-i", "c", "cat"], input="hello", timeout=5)
+    result = runner.run(["docker", "exec", "-i", "c", "cat"], stdin_text="hello", timeout=5)
     assert result.stdout == "ok"
     assert seen["argv"] == ["wsl", "--", "docker", "exec", "-i", "c", "cat"]
     assert seen["input"] == "hello"
@@ -200,7 +200,7 @@ def test_restore_writes_file_then_reloads(topo) -> None:
             "/usr/lib/frr/frr-reload.py", "--reload", RESTORE_FILE,
         ],
     ]  # fmt: skip
-    assert runner.inputs[0] == "frr version 10.7.1\nhostname r3\n"
+    assert runner.stdin_texts[0] == "frr version 10.7.1\nhostname r3\n"
 
 
 def test_restore_stops_if_write_fails(topo) -> None:
@@ -242,7 +242,7 @@ def test_host_exec_runs_raw_argv(topo) -> None:
 
 def test_docker_missing_becomes_lab_error(topo) -> None:
     class Broken(CommandRunner):
-        def run(self, argv, input=None, timeout=60):
+        def run(self, argv, stdin_text=None, timeout=60):
             raise FileNotFoundError("docker")
 
     lab = ClabLab(topo, Broken())
@@ -289,10 +289,10 @@ def test_take_baseline_then_reset_restores_each_router(topo) -> None:
     assert len(snapshot_calls) == len(topo.routers())
 
     runner.calls.clear()
-    runner.inputs.clear()
+    runner.stdin_texts.clear()
     manager.reset()
     restore_inputs = [
-        config_input for config_input in runner.inputs if config_input is not None
+        config_input for config_input in runner.stdin_texts if config_input is not None
     ]
     assert restore_inputs == [
         f"frr version 10.7.1\nhostname {router}\n" for router in topo.routers()

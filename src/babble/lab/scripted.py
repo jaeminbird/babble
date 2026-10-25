@@ -17,7 +17,7 @@ Rules, so tests stay predictable:
 - `snapshot` captures one device's applied config lines. `restore` puts them back and
   recomputes the state, so restoring a device can move the whole lab back to "broken".
 - `host_exec` is recorded only. It never changes state, which keeps fault injection
-  visible to tests through `host_calls`.
+  visible to tests through `host_exec_calls`.
 
 Usage:
 
@@ -115,9 +115,9 @@ class ScriptedLab:
         }
 
         # Accepted configure calls, with normalized lines, in call order.
-        self.config_calls: list[tuple[str, list[str]]] = []
+        self.configure_calls: list[tuple[str, list[str]]] = []
         # Host exec calls as (device, argv), in call order.
-        self.host_calls: list[tuple[str, list[str]]] = []
+        self.host_exec_calls: list[tuple[str, list[str]]] = []
 
     # ----------------------------------------------------------------- state
 
@@ -157,7 +157,7 @@ class ScriptedLab:
     def configure(self, device: str, lines: list[str]) -> str:
         self._require_router(device)
         normalized_lines = [line for line in map(_normalize_whitespace, lines) if line]
-        self.config_calls.append((device, normalized_lines))
+        self.configure_calls.append((device, normalized_lines))
         applied_lines = self._applied_config_lines[device]
         for normalized_line in normalized_lines:
             if normalized_line not in applied_lines:
@@ -198,7 +198,7 @@ class ScriptedLab:
 
     def host_exec(self, device: str, argv: list[str]) -> str:
         self._require_device(device)
-        self.host_calls.append((device, list(argv)))
+        self.host_exec_calls.append((device, list(argv)))
         return ""
 
     # ---------------------------------------------------------------- helpers

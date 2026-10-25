@@ -117,7 +117,7 @@ def test_tool_use_helper_builds_block_and_generates_ids():
     assert block["name"] == "run_show"
     assert block["input"] == {"device": "r1"}
     assert block["id"]
-    assert tool_use("x", {}, id="toolu_fixed")["id"] == "toolu_fixed"
+    assert tool_use("x", {}, tool_use_id="toolu_fixed")["id"] == "toolu_fixed"
     assert tool_use("x", {})["id"] != tool_use("x", {})["id"]
 
 

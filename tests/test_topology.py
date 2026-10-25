@@ -18,8 +18,8 @@ def topo() -> Topology:
 
 def test_loads_metro_from_repo_labs_dir(topo: Topology) -> None:
     assert topo.name == "metro"
-    assert topo.dir == DEFAULT_LABS_DIR / "metro"
-    assert topo.clab_file == topo.dir / "metro.clab.yml"
+    assert topo.lab_directory == DEFAULT_LABS_DIR / "metro"
+    assert topo.clab_file == topo.lab_directory / "metro.clab.yml"
     assert topo.clab_file.is_file()
 
 
@@ -37,13 +37,13 @@ def test_every_link_endpoint_is_a_device(topo: Topology) -> None:
 
 def test_every_router_has_a_config_file(topo: Topology) -> None:
     for router in topo.routers():
-        assert (topo.dir / "configs" / f"{router}.conf").is_file(), router
+        assert (topo.lab_directory / "configs" / f"{router}.conf").is_file(), router
 
 
 def test_every_router_config_contains_its_loopback(topo: Topology) -> None:
     for router in topo.routers():
         loopback = topo.devices[router]["loopback"]
-        text = (topo.dir / "configs" / f"{router}.conf").read_text(encoding="utf-8")
+        text = (topo.lab_directory / "configs" / f"{router}.conf").read_text(encoding="utf-8")
         assert f"ip address {loopback}/32" in text, router
         assert f"hostname {router}" in text, router
 

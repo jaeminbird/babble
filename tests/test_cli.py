@@ -253,7 +253,7 @@ def test_run_rejects_an_unknown_preset_before_touching_the_lab(
 ) -> None:
     assert cli.main(["run", NO_FAULT_SCENARIO, "--preset", "zzz"]) == 2
 
-    assert "unknown preset(s): zzz" in capsys.readouterr().err
+    assert "unknown harness_config_for_preset(s): zzz" in capsys.readouterr().err
 
 
 def test_bench_rejects_an_unknown_scenario_or_preset_before_touching_the_lab(
@@ -264,7 +264,7 @@ def test_bench_rejects_an_unknown_scenario_or_preset_before_touching_the_lab(
 
     err = capsys.readouterr().err
     assert "unknown scenario(s): nope" in err
-    assert "unknown preset(s): zzz" in err
+    assert "unknown harness_config_for_preset(s): zzz" in err
 
 
 # ---------------------------------------------------------------------- lab

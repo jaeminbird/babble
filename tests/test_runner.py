@@ -4,7 +4,7 @@ import json
 import pytest
 
 from babble.bench import runner as runner_module
-from babble.bench.configs import preset
+from babble.bench.configs import harness_config_for_preset
 from babble.bench.runner import (
     TrialResult,
     assemble_agent,
@@ -175,7 +175,7 @@ def solving_playbook():
 def harness(preset_name):
     """A preset with the subagent tool off. That tool lives in its own module, which these
     offline tests do not need, so every test config goes through here."""
-    return dataclasses.replace(preset(preset_name), subagents=False)
+    return dataclasses.replace(harness_config_for_preset(preset_name), subagents=False)
 
 
 def trial(

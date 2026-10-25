@@ -150,7 +150,7 @@ def test_blocked_lines_are_rejected_and_nothing_is_applied():
     assert result.is_error
     assert "hostname evil" in result.content
     assert "Nothing was changed" in result.content
-    assert lab.config_calls == []
+    assert lab.configure_calls == []
     assert lab.applied_lines("r3") == []
     assert _event_types(audit) == ["change_rejected"]
     assert audit.of_type("change_rejected")[0].data["device"] == "r3"
@@ -162,7 +162,7 @@ def test_empty_line_list_is_rejected():
     result = manager.apply("r3", [], RATIONALE)
 
     assert result.is_error
-    assert lab.config_calls == []
+    assert lab.configure_calls == []
 
 
 def test_unknown_device_is_an_error_result():

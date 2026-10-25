@@ -14,10 +14,10 @@ from babble.bench.scenario import (
     InjectStep,
     RootCause,
     Scenario,
-    inject,
+    inject_fault,
     load_all,
     load_scenario,
-    revert_host,
+    revert_host_side_fault,
 )
 from babble.lab.scripted import ScriptedLab
 from babble.lab.topology import Topology, load_topology
@@ -195,8 +195,8 @@ def test_every_scenario_has_a_title_and_alert(scenarios: dict[str, Scenario]) ->
 
 def test_inject_config_steps_apply_in_order(scenarios: dict[str, Scenario], topo: Topology) -> None:
     lab = _lab(topo)
-    inject(scenarios["bgp-wrong-neighbor-ip"], lab)
-    assert lab.config_calls == [
+    inject_fault(scenarios["bgp-wrong-neighbor-ip"], lab)
+    assert lab.configure_calls == [
         (
             "r3",
             [
@@ -206,7 +206,7 @@ def test_inject_config_steps_apply_in_order(scenarios: dict[str, Scenario], topo
             ],
         )
     ]
-    assert lab.host_calls == []
+    assert lab.host_exec_calls == []
 
 
 def test_inject_multiple_steps_in_declared_order(topo: Topology) -> None:
@@ -225,8 +225,8 @@ def test_inject_multiple_steps_in_declared_order(topo: Topology) -> None:
         fixable=True,
     )
     lab = _lab(topo)
-    inject(scenario, lab)
-    assert [device for device, _ in lab.config_calls] == ["r2", "r1"]
+    inject_fault(scenario, lab)
+    assert [device for device, _ in lab.configure_calls] == ["r2", "r1"]
 
 
 def test_inject_host_step_goes_to_host_exec_and_revert_undoes_it(
@@ -234,34 +234,34 @@ def test_inject_host_step_goes_to_host_exec_and_revert_undoes_it(
 ) -> None:
     lab = _lab(topo)
     degraded = scenarios["link-degradation"]
-    inject(degraded, lab)
-    assert lab.config_calls == []
-    assert lab.host_calls == [
+    inject_fault(degraded, lab)
+    assert lab.configure_calls == []
+    assert lab.host_exec_calls == [
         ("r3", ["tc", "qdisc", "add", "dev", "eth3", "root", "netem", "loss", "40%"])
     ]
 
-    revert_host(degraded, lab)
-    assert lab.host_calls[-1] == ("r3", ["tc", "qdisc", "del", "dev", "eth3", "root"])
-    assert len(lab.host_calls) == 2
+    revert_host_side_fault(degraded, lab)
+    assert lab.host_exec_calls[-1] == ("r3", ["tc", "qdisc", "del", "dev", "eth3", "root"])
+    assert len(lab.host_exec_calls) == 2
 
 
 def test_revert_host_skips_config_only_scenarios(
     scenarios: dict[str, Scenario], topo: Topology
 ) -> None:
     lab = _lab(topo)
-    inject(scenarios["bgp-wrong-remote-as"], lab)
-    revert_host(scenarios["bgp-wrong-remote-as"], lab)
-    assert lab.host_calls == []
+    inject_fault(scenarios["bgp-wrong-remote-as"], lab)
+    revert_host_side_fault(scenarios["bgp-wrong-remote-as"], lab)
+    assert lab.host_exec_calls == []
 
 
 def test_inject_no_fault_control_touches_nothing(
     scenarios: dict[str, Scenario], topo: Topology
 ) -> None:
     lab = _lab(topo)
-    inject(scenarios["no-fault-control"], lab)
-    revert_host(scenarios["no-fault-control"], lab)
-    assert lab.config_calls == []
-    assert lab.host_calls == []
+    inject_fault(scenarios["no-fault-control"], lab)
+    revert_host_side_fault(scenarios["no-fault-control"], lab)
+    assert lab.configure_calls == []
+    assert lab.host_exec_calls == []
     assert lab.state == "broken"  # no fix table, so the lab never reports fixed
 
 
@@ -274,7 +274,7 @@ def test_injecting_a_config_fault_leaves_lab_state_changed(
         hosts=set(topo.hosts()),
         fix={"rb": ["neighbor 10.2.0.1 remote-as 65000"]},
     )
-    inject(scenarios["bgp-wrong-remote-as"], lab)
+    inject_fault(scenarios["bgp-wrong-remote-as"], lab)
     assert lab.applied_lines("rb") == ["router bgp 65002", "neighbor 10.2.0.1 remote-as 65010"]
     assert lab.state == "broken"
 
