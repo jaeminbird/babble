@@ -13,6 +13,8 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
+    "mypy>=1.10",
+    "types-PyYAML",
 ]
 
 [project.scripts]
@@ -42,3 +44,9 @@ select = ["E", "F", "W", "I", "B", "BLE", "UP"]
 [tool.ruff.lint.per-file-ignores]
 # Prompt text is prose, one sentence per line. Rewrapping it would change the cached system prompt.
 "src/babble/harness/prompts.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+warn_unused_ignores = true
+warn_redundant_casts = true

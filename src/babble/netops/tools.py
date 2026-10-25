@@ -9,7 +9,7 @@ from __future__ import annotations
 import functools
 import ipaddress
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, TypeGuard
 
 from babble.harness.loop import SUBMIT_TOOL
 from babble.lab.topology import Topology
@@ -138,9 +138,8 @@ def build_tools(
 def _make_show_handler(lab: LabBackend, topology: Topology) -> Handler:
     def handle_show_command(tool_input: dict[str, Any]) -> ToolResult:
         device = tool_input.get("device")
-        problem_message = _device_name_problem(lab, device)
-        if problem_message:
-            return ToolResult(problem_message, is_error=True)
+        if not _is_lab_device(device, lab):
+            return ToolResult(_unknown_device_message(lab, device), is_error=True)
         if device in topology.hosts():
             return ToolResult(
                 f"Not run: {device} is a host. show runs on routers only.", is_error=True
@@ -170,9 +169,8 @@ def run_show_command(lab: LabBackend, device: str, command: Any) -> ToolResult:
 def _make_ping_handler(lab: LabBackend) -> Handler:
     def handle_ping_command(tool_input: dict[str, Any]) -> ToolResult:
         device = tool_input.get("device")
-        problem_message = _device_name_problem(lab, device)
-        if problem_message:
-            return ToolResult(problem_message, is_error=True)
+        if not _is_lab_device(device, lab):
+            return ToolResult(_unknown_device_message(lab, device), is_error=True)
         return run_ping(lab, device, tool_input.get("target"))
 
     return handle_ping_command
@@ -203,9 +201,8 @@ def _make_propose_change_handler(
         device = tool_input.get("device")
         lines = tool_input.get("lines")
         rationale = tool_input.get("rationale")
-        problem_message = _device_name_problem(lab, device)
-        if problem_message:
-            return ToolResult(problem_message, is_error=True)
+        if not _is_lab_device(device, lab):
+            return ToolResult(_unknown_device_message(lab, device), is_error=True)
         if device in topology.hosts():
             return ToolResult(
                 f"Not applied: {device} is a host. Changes go to routers only.", is_error=True
@@ -224,9 +221,8 @@ def _make_rollback_handler(
 ) -> Handler:
     def handle_rollback(tool_input: dict[str, Any]) -> ToolResult:
         device = tool_input.get("device")
-        problem_message = _device_name_problem(lab, device)
-        if problem_message:
-            return ToolResult(problem_message, is_error=True)
+        if not _is_lab_device(device, lab):
+            return ToolResult(_unknown_device_message(lab, device), is_error=True)
         if device in topology.hosts():
             return ToolResult(f"Not run: {device} is a host, so it has no changes.", is_error=True)
         return change_manager.rollback(device)
@@ -247,12 +243,13 @@ def _report_lab_errors_as_results(handler: Handler) -> Handler:
     return handle_and_report_lab_errors
 
 
-def _device_name_problem(lab: LabBackend, device: Any) -> str | None:
-    """None when `device` names a device in the lab, else an error listing the valid names."""
-    devices_in_lab = lab.devices()
-    if isinstance(device, str) and device in devices_in_lab:
-        return None
-    return f"Unknown device {device!r}. Valid devices: {', '.join(devices_in_lab)}"
+def _is_lab_device(device: object, lab: LabBackend) -> TypeGuard[str]:
+    """True when `device` names a device in the lab. Narrows the caller's device to str."""
+    return isinstance(device, str) and device in lab.devices()
+
+
+def _unknown_device_message(lab: LabBackend, device: object) -> str:
+    return f"Unknown device {device!r}. Valid devices: {', '.join(lab.devices())}"
 
 
 def _submit_diagnosis_spec() -> ToolSpec:

@@ -22,5 +22,7 @@ def harness_config_for_preset(name: str, model: str | None = None) -> HarnessCon
     """A fresh copy of the named preset, with its model replaced when `model` is given."""
     if name not in PRESETS:
         raise ValueError(f"unknown preset {name!r}; valid presets: {', '.join(PRESETS)}")
-    overrides = {} if model is None else {"model": model}
-    return dataclasses.replace(PRESETS[name], **overrides)
+    preset = PRESETS[name]
+    if model is None:
+        return dataclasses.replace(preset)
+    return dataclasses.replace(preset, model=model)

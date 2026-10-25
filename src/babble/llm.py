@@ -147,14 +147,12 @@ class AnthropicClient:
             cache=cache,
         )
         if model in FALLBACK_MODELS:
-            endpoint = self._client.beta.messages
             request_kwargs["betas"] = [FALLBACK_BETA]
             request_kwargs["fallbacks"] = "default"
-        else:
-            endpoint = self._client.messages
-        with endpoint.stream(**request_kwargs) as stream:
-            final_message = stream.get_final_message()
-        return _to_response(final_message)
+            with self._client.beta.messages.stream(**request_kwargs) as beta_stream:
+                return _to_response(beta_stream.get_final_message())
+        with self._client.messages.stream(**request_kwargs) as stream:
+            return _to_response(stream.get_final_message())
 
 
 def _request_kwargs(

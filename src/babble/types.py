@@ -96,7 +96,7 @@ class ToolSpec:
     strict: bool = False
 
     def to_api(self) -> dict[str, Any]:
-        api = {
+        api: dict[str, Any] = {
             "name": self.name,
             "description": self.description,
             "input_schema": self.input_schema,

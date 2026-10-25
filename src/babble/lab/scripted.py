@@ -91,8 +91,10 @@ class ScriptedLab:
         self._fixed_show_responses = _normalize_table(
             fixed_responses or {}, known_device_names, "fixed_responses"
         )
-        self._broken_ping_results = _normalize_table(pings or {}, known_device_names, "pings")
-        self._fixed_ping_results = _normalize_table(
+        self._broken_ping_results: dict[tuple[str, str], bool] = _normalize_table(
+            pings or {}, known_device_names, "pings"
+        )
+        self._fixed_ping_results: dict[tuple[str, str], bool] = _normalize_table(
             fixed_pings or {}, known_device_names, "fixed_pings"
         )
 
@@ -203,8 +205,8 @@ class ScriptedLab:
 
     def _lookup_for_current_state(
         self,
-        fixed_table: dict[tuple[str, str], _TableValue],
-        broken_table: dict[tuple[str, str], _TableValue],
+        fixed_table: Mapping[tuple[str, str], _TableValue],
+        broken_table: Mapping[tuple[str, str], _TableValue],
         key: tuple[str, str],
     ) -> _TableValue | None:
         """The fixed table's entry while the lab is fixed and has one, else the broken table's."""
