@@ -2,7 +2,7 @@
 
 # babble
 
-**Like the babbler bird on sentinel duty, babble watches your network, finds the fault, and fixes it with your OK.**
+**Like the babbler bird, babble watches your network, finds the fault, and fixes it with your OK.**
 
 Claude investigates. You approve. The network proves the fix, or babble takes it back.<br>
 **12/12** injected network faults fixed and verified on live routers.
