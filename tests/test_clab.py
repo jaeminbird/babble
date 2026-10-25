@@ -194,7 +194,7 @@ def test_restore_writes_file_then_reloads(topo) -> None:
     lab, runner = make_lab(topo)
     lab.restore("r3", "frr version 10.7.1\nhostname r3\n")
     assert runner.calls == [
-        ["docker", "exec", "clab-metro-r3", "sh", "-c", f"cat > {RESTORE_FILE}"],
+        ["docker", "exec", "-i", "clab-metro-r3", "tee", RESTORE_FILE],
         [
             "docker", "exec", "clab-metro-r3",
             "/usr/lib/frr/frr-reload.py", "--reload", RESTORE_FILE,

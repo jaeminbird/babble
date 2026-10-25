@@ -89,7 +89,10 @@ class ClabLab:
         self, device: str, argv: list[str], input: str | None = None
     ) -> subprocess.CompletedProcess[str]:
         """Run argv inside the device container. Non-zero exit raises LabError."""
-        proc = self._run(["docker", "exec", *self._exec_args(device), *argv], input=input)
+        interactive = ["-i"] if input is not None else []
+        proc = self._run(
+            ["docker", "exec", *interactive, *self._exec_args(device), *argv], input=input
+        )
         if proc.returncode != 0:
             detail = proc.stderr.strip() or proc.stdout.strip() or f"exit {proc.returncode}"
             raise LabError(detail)
@@ -128,7 +131,8 @@ class ClabLab:
         return output
 
     def restore(self, device: str, config: str) -> None:
-        self._exec(device, ["sh", "-c", f"cat > {RESTORE_FILE}"], input=config)
+        # tee, not a shell redirect: no quoting to survive through a wsl.exe prefix.
+        self._exec(device, ["tee", RESTORE_FILE], input=config)
         self._exec(device, ["/usr/lib/frr/frr-reload.py", "--reload", RESTORE_FILE])
 
     def ping(self, device: str, target: str, count: int = 3) -> PingResult:
