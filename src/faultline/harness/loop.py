@@ -33,9 +33,10 @@ SUBMIT_FIELDS = ("root_cause_device", "category", "summary", "evidence", "fix_ap
 CUT_OFF = "not run: response was cut off"
 SKIPPED = "not run: diagnosis already submitted"
 
+# Format with finish_tool_name=... before sending.
 NUDGE = (
-    f"You have not finished. Call {SUBMIT_TOOL} now with your diagnosis, using the evidence "
-    "you have. If you are unsure, say so in the summary."
+    "You have not finished. Call {finish_tool_name} now with your result, using the evidence "
+    "you have. If you are unsure, say so."
 )
 
 
@@ -68,6 +69,8 @@ class RunResult:
     approvals: int
     # Approver declines plus calls denied by policy.
     denials: int
+    # Input of the finish call when the finish tool is not submit_diagnosis. None otherwise.
+    finish_tool_input: dict[str, Any] | None = None
 
 
 class Agent:
@@ -84,6 +87,9 @@ class Agent:
         compactor: Compactor | None = None,
         pre_hooks: Sequence[PreHook] = (),
         post_hooks: Sequence[PostHook] = (),
+        # A successful call to this tool ends the run. For submit_diagnosis the input is parsed
+        # into a Diagnosis; for any other tool the input is kept as RunResult.finish_tool_input.
+        finish_tool_name: str = SUBMIT_TOOL,
     ) -> None:
         self.llm = llm
         self.tools = list(tools)
@@ -96,6 +102,7 @@ class Agent:
         self.compactor = compactor
         self.pre_hooks = tuple(pre_hooks)
         self.post_hooks = tuple(post_hooks)
+        self.finish_tool_name = finish_tool_name
 
     def run(self, task: str) -> RunResult:
         return _Run(self, task).execute()
@@ -120,7 +127,9 @@ class _Run:
         self.approvals = 0
         self.denials = 0
         self.nudged = False
+        self.finished = False
         self.diagnosis: Diagnosis | None = None
+        self.finish_tool_input: dict[str, Any] | None = None
         self.last_usage = Usage()
 
     # ------------------------------------------------------------------ loop
@@ -183,12 +192,13 @@ class _Run:
                 if self.nudged:
                     return self._stop("no_diagnosis")
                 self.nudged = True
-                self.messages.append({"role": "user", "content": NUDGE})
+                nudge = NUDGE.format(finish_tool_name=self.agent.finish_tool_name)
+                self.messages.append({"role": "user", "content": nudge})
                 continue
 
             self._run_calls(calls)
-            if self.diagnosis is not None:
-                return self._stop("diagnosis")
+            if self.finished:
+                return self._stop("diagnosis" if self.diagnosis is not None else "finished")
 
         return self._stop("max_turns")
 
@@ -217,6 +227,7 @@ class _Run:
             tool_calls=self.tool_calls,
             approvals=self.approvals,
             denials=self.denials,
+            finish_tool_input=self.finish_tool_input,
         )
 
     # ----------------------------------------------------------------- tools
@@ -270,13 +281,13 @@ class _Run:
 
     def _complete(self, call: ToolCall, spec: ToolSpec, result: ToolResult) -> ToolResult:
         result = self._finish(call, result)
-        if spec.name == SUBMIT_TOOL and not result.is_error:
-            self._record_diagnosis(call.input)
+        if spec.name == self.agent.finish_tool_name and not result.is_error:
+            self._record_finish(call.input)
         return result
 
     def _gate(self, call: ToolCall, spec: ToolSpec | None) -> ToolResult | None:
         """Return a final result if the call must not run, or None to run it."""
-        if self.diagnosis is not None:
+        if self.finished:
             return ToolResult(SKIPPED, is_error=True)
         if spec is None:
             return ToolResult(f"Unknown tool: {call.name}", is_error=True)
@@ -325,8 +336,12 @@ class _Run:
             blocks.append(self._result_block(call, result))
         self.messages.append({"role": "user", "content": blocks})
 
-    def _record_diagnosis(self, data: dict[str, Any]) -> None:
-        if self.diagnosis is not None:
+    def _record_finish(self, data: dict[str, Any]) -> None:
+        if self.finished:
+            return
+        self.finished = True
+        if self.agent.finish_tool_name != SUBMIT_TOOL:
+            self.finish_tool_input = data
             return
         self.diagnosis = Diagnosis(
             root_cause_device=data["root_cause_device"],

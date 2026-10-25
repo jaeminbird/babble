@@ -216,7 +216,8 @@ def test_nudge_then_submit_succeeds():
     agent, llm, _ = _make([response(text("Thinking about it.")), response(_submit())])
     result = agent.run("task")
     assert result.stop_reason == "diagnosis"
-    assert result.messages[2] == {"role": "user", "content": NUDGE}
+    nudge = NUDGE.format(finish_tool_name=SUBMIT_TOOL)
+    assert result.messages[2] == {"role": "user", "content": nudge}
     assert_append_only(llm.calls)
 
 
@@ -718,3 +719,116 @@ def test_compaction_starts_a_fresh_conversation_and_is_audited():
     compaction = audit.of_type("compaction")[0].data
     assert compaction == {"turn": 2, "messages_before": 3, "messages_after": 1}
     assert_append_only(llm.calls)
+
+
+# ------------------------------------------------------------ custom finish tool
+
+FINDINGS = {"summary": "eth3 is down.", "facts": ["eth3 administratively down"]}
+
+
+def _finish_spec(name: str = "submit_findings", handler=None) -> ToolSpec:
+    return ToolSpec(
+        name=name,
+        description="Record findings.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "facts": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["summary", "facts"],
+            "additionalProperties": False,
+        },
+        handler=handler or (lambda _input: ToolResult("Findings recorded.")),
+        strict=True,
+    )
+
+
+def test_custom_finish_tool_ends_the_run_and_keeps_its_input():
+    finish = tool_use("submit_findings", dict(FINDINGS), id="t2")
+    agent, llm, audit = _make(
+        [response(tool_use("show", {}, id="t1")), response(finish)],
+        tools=[_show_spec(), _finish_spec()],
+        finish_tool_name="submit_findings",
+    )
+    result = agent.run("task")
+
+    assert result.stop_reason == "finished"
+    assert result.diagnosis is None
+    assert result.finish_tool_input == FINDINGS
+    assert result.turns == 2
+    assert audit.of_type("diagnosis") == []
+    assert audit.of_type("stop")[0].data == {"reason": "finished", "turns": 2}
+    assert_append_only(llm.calls)
+
+
+def test_custom_finish_tool_input_is_not_validated_as_a_diagnosis():
+    # Diagnosis validation applies to submit_diagnosis only.
+    agent, _, _ = _make(
+        [response(tool_use("submit_findings", {"anything": 1}, id="t1"))],
+        tools=[_finish_spec()],
+        finish_tool_name="submit_findings",
+    )
+    result = agent.run("task")
+    assert result.stop_reason == "finished"
+    assert result.finish_tool_input == {"anything": 1}
+
+
+def test_failed_custom_finish_call_does_not_end_the_run():
+    results = iter([ToolResult("not ready", is_error=True), ToolResult("Findings recorded.")])
+    agent, _, _ = _make(
+        [
+            response(tool_use("submit_findings", dict(FINDINGS), id="t1")),
+            response(tool_use("submit_findings", dict(FINDINGS), id="t2")),
+        ],
+        tools=[_finish_spec(handler=lambda _input: next(results))],
+        finish_tool_name="submit_findings",
+    )
+    result = agent.run("task")
+    assert result.stop_reason == "finished"
+    assert result.turns == 2
+    assert result.messages[2]["content"][0]["is_error"] is True
+
+
+def test_nudge_names_the_custom_finish_tool():
+    agent, _, _ = _make(
+        [response(text("Still looking.")), response(text("Done."))],
+        tools=[_finish_spec()],
+        finish_tool_name="submit_findings",
+    )
+    result = agent.run("task")
+    assert result.stop_reason == "no_diagnosis"
+    assert result.messages[2]["content"] == NUDGE.format(finish_tool_name="submit_findings")
+    assert "submit_findings" in result.messages[2]["content"]
+    assert result.finish_tool_input is None
+
+
+def test_calls_after_a_custom_finish_in_the_same_turn_do_not_run():
+    # A mutating call makes the batch serial, so the finish is handled before the next call is gated.
+    ran = []
+    change = _show_spec(
+        name="propose_change",
+        handler=lambda _input: ran.append(1) or ToolResult("applied"),
+        mutating=True,
+        parallel_safe=False,
+    )
+    agent, _, _ = _make(
+        [
+            response(
+                tool_use("submit_findings", dict(FINDINGS), id="t1"),
+                tool_use("propose_change", {}, id="t2"),
+            )
+        ],
+        tools=[change, _finish_spec()],
+        approver=ScriptedApprover([]),  # would fail the test if the change were gated
+        finish_tool_name="submit_findings",
+    )
+    result = agent.run("task")
+    assert result.stop_reason == "finished"
+    assert ran == []
+    assert result.messages[2]["content"][1] == {
+        "type": "tool_result",
+        "tool_use_id": "t2",
+        "content": "not run: diagnosis already submitted",
+        "is_error": True,
+    }
