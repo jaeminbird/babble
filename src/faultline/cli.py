@@ -165,9 +165,7 @@ def command_run(args: argparse.Namespace) -> int:
 
 def command_bench(args: argparse.Namespace) -> int:
     scenarios = (
-        load_all()
-        if args.scenarios == "all"
-        else scenarios_named(split_comma_list(args.scenarios))
+        load_all() if args.scenarios == "all" else scenarios_named(split_comma_list(args.scenarios))
     )
     preset_names = validated_preset_names(split_comma_list(args.presets))
     output_directory = Path(args.output_directory or default_output_directory())
@@ -212,9 +210,7 @@ def describe_trial(result: TrialResult, scenario: Scenario, output_directory: Pa
     if result.diagnosis is None:
         diagnosed = "no diagnosis"
     else:
-        diagnosed = (
-            f"{result.diagnosis['root_cause_device'] or '-'}/{result.diagnosis['category']}"
-        )
+        diagnosed = f"{result.diagnosis['root_cause_device'] or '-'}/{result.diagnosis['category']}"
     root_cause_verdict = "correct" if result.root_cause_correct else "wrong"
     lines = [
         f"Scenario: {scenario.id} ({scenario.title})",
