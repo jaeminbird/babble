@@ -117,6 +117,7 @@ def build_tools(
             handler=_report_lab_errors_as_results(
                 _make_rollback_handler(lab, topology, change_manager)
             ),
+            mutating=True,
             parallel_safe=False,
         ),
     ]

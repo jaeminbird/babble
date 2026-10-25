@@ -115,7 +115,7 @@ def test_mutating_and_parallel_flags():
     tools, *_ = make_tools_with_lab()
     assert tools["propose_change"].mutating is True
     assert tools["propose_change"].parallel_safe is False
-    assert tools["rollback"].mutating is False
+    assert tools["rollback"].mutating is True
     assert tools["rollback"].parallel_safe is False
     for name in ("list_devices", "show", "ping"):
         assert tools[name].mutating is False
@@ -355,6 +355,39 @@ def test_agent_diagnoses_and_fixes_the_lab_through_the_tools():
     assert result.denials == 0
     assert [e.data["device"] for e in audit.of_type("change_applied")] == ["r3"]
     assert_append_only(llm.calls)
+
+
+def test_agent_rollback_needs_approval_and_a_decline_keeps_the_change():
+    lab = make_lab()
+    audit = AuditLog()
+    config = HarnessConfig()
+    changes = ChangeManager(lab, [DC_PING], config, audit)
+    llm = FakeLLMClient(
+        [
+            response(tool_use("propose_change", PROPOSE)),
+            response(tool_use("rollback", {"device": "r3"})),
+            response(tool_use(SUBMIT_TOOL, SUBMIT_FIXED)),
+        ]
+    )
+    approver = ScriptedApprover([True, False])
+    agent = Agent(
+        llm=llm,
+        tools=build_tools(lab, TOPO, changes),
+        config=config,
+        policy=SafetyPolicy(),
+        approver=approver,
+        audit=audit,
+        system_prompt=SYSTEM,
+    )
+    result = agent.run(TASK)
+
+    assert [call.name for call, _reason in approver.calls] == ["propose_change", "rollback"]
+    assert result.denials == 1
+    assert lab.applied_lines("r3") == FIX
+    assert lab.state == "fixed"
+    declined = llm.calls[2]["messages"][-1]["content"][0]
+    assert declined["content"] == DECLINED_NOTE
+    assert declined["is_error"] is True
 
 
 def test_agent_stays_broken_when_the_operator_declines_the_change():
