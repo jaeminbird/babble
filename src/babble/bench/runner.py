@@ -75,6 +75,12 @@ class TrialResult:
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
+    def trial_file(self, output_directory: Path, suffix: str) -> Path:
+        """This trial's file in `output_directory`, for example suffix "audit.jsonl"."""
+        return trial_file_path(
+            output_directory, self.scenario_id, self.preset_name, self.trial_index, suffix
+        )
+
 
 @dataclass
 class TrialAgent:
@@ -199,15 +205,18 @@ def run_trial(
 
     try:
         reset_lab_to_baseline()
-        baseline = settled_results()
+        baseline_results = settled_results()
         inject(scenario, lab)
         if scenario.fixable:
             if not _fault_became_visible(scenario, lab, fault_visibility_timeout_seconds, sleep):
-                result.error = "fault did not become visible"
+                result.error = (
+                    "fault did not become visible within "
+                    f"{fault_visibility_timeout_seconds:g} seconds"
+                )
                 return result
         else:
             sleep(min(UNFIXABLE_SETTLE_SECONDS, fault_visibility_timeout_seconds))
-        after_fault = evaluate_all(all_checks, lab)
+        after_fault_results = evaluate_all(all_checks, lab)
 
         trial_agent = assemble_agent(
             scenario,
@@ -223,21 +232,21 @@ def run_trial(
             sleep,
         )
         started = time.monotonic()
-        run = trial_agent.agent.run(scenario.alert)
+        agent_run = trial_agent.agent.run(scenario.alert)
         result.wall_seconds = time.monotonic() - started
-        _write_messages(output_directory, result, run)
+        _write_messages(output_directory, result, agent_run)
 
-        final = settled_results()
+        final_results = settled_results()
         _score(
             result,
             scenario,
             harness_config,
-            run,
+            agent_run,
             trial_agent.change_manager.changes,
             all_checks,
-            baseline,
-            after_fault,
-            final,
+            baseline_results,
+            after_fault_results,
+            final_results,
         )
     except Exception as exc:  # noqa: BLE001 - recorded in the result; the trial must still revert
         result.error = f"{type(exc).__name__}: {exc}"
@@ -262,48 +271,44 @@ def _fault_became_visible(
         sleep(POLL_INTERVAL_SECONDS)
 
 
-def _write_messages(output_directory: Path, result: TrialResult, run: RunResult) -> None:
-    path = trial_file_path(
-        output_directory, result.scenario_id, result.preset_name, result.trial_index, "messages.json"
+def _write_messages(output_directory: Path, result: TrialResult, agent_run: RunResult) -> None:
+    result.trial_file(output_directory, "messages.json").write_text(
+        json.dumps(agent_run.messages, indent=2), encoding="utf-8"
     )
-    path.write_text(json.dumps(run.messages, indent=2), encoding="utf-8")
 
 
 def _score(
     result: TrialResult,
     scenario: Scenario,
     harness_config: HarnessConfig,
-    run: RunResult,
+    agent_run: RunResult,
     changes: list[dict[str, Any]],
     all_checks: list[Check],
-    baseline: dict[Check, bool],
-    after_fault: dict[Check, bool],
-    final: dict[Check, bool],
+    baseline_results: dict[Check, bool],
+    after_fault_results: dict[Check, bool],
+    final_results: dict[Check, bool],
 ) -> None:
-    truth = scenario.root_cause
-    diagnosis = run.diagnosis
+    expected_root_cause = scenario.root_cause
+    diagnosis = agent_run.diagnosis
 
     result.diagnosis = dataclasses.asdict(diagnosis) if diagnosis is not None else None
-    result.stop_reason = run.stop_reason
-    result.turns = run.turns
-    result.tool_calls = run.tool_calls
-    result.approvals = run.approvals
-    result.denials = run.denials
-    result.input_tokens = run.usage.input_tokens
-    result.output_tokens = run.usage.output_tokens
-    result.cache_read_input_tokens = run.usage.cache_read_input_tokens
-    result.cache_creation_input_tokens = run.usage.cache_creation_input_tokens
-    result.cost_usd = run.cost_usd
+    result.stop_reason = agent_run.stop_reason
+    result.turns = agent_run.turns
+    result.tool_calls = agent_run.tool_calls
+    result.approvals = agent_run.approvals
+    result.denials = agent_run.denials
+    result.input_tokens = agent_run.usage.input_tokens
+    result.output_tokens = agent_run.usage.output_tokens
+    result.cache_read_input_tokens = agent_run.usage.cache_read_input_tokens
+    result.cache_creation_input_tokens = agent_run.usage.cache_creation_input_tokens
+    result.cost_usd = agent_run.cost_usd
 
     result.root_cause_category_correct = (
-        diagnosis is not None and diagnosis.category == truth.category
+        diagnosis is not None and diagnosis.category == expected_root_cause.category
     )
-    if truth.category == NO_FAULT_CATEGORY:
-        result.root_cause_device_correct = True
-    else:
-        result.root_cause_device_correct = (
-            diagnosis is not None and diagnosis.root_cause_device == truth.device
-        )
+    result.root_cause_device_correct = expected_root_cause.category == NO_FAULT_CATEGORY or (
+        diagnosis is not None and diagnosis.root_cause_device == expected_root_cause.device
+    )
     result.root_cause_correct = (
         result.root_cause_category_correct and result.root_cause_device_correct
     )
@@ -313,7 +318,7 @@ def _score(
     result.changes_kept = result.changes_applied - result.changes_rolled_back
 
     if scenario.fixable:
-        result.solved = all(final[check] for check in scenario.checks)
+        result.solved = all(final_results[check] for check in scenario.checks)
     else:
         result.solved = result.root_cause_category_correct and result.changes_kept == 0
     result.unnecessary_change = not scenario.fixable and result.changes_kept > 0
@@ -325,7 +330,7 @@ def _score(
     result.collateral_damage = [
         check.describe()
         for check in all_checks
-        if baseline[check] and after_fault[check] and not final[check]
+        if baseline_results[check] and after_fault_results[check] and not final_results[check]
     ]
 
 
