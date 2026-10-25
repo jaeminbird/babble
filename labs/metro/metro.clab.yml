@@ -10,38 +10,26 @@ topology:
       kind: frr
       image: quay.io/frrouting/frr:containerlab-10.7.1
       startup-config: configs/r1.conf
-      binds:
-        - daemons:/etc/frr/daemons
     r2:
       kind: frr
       image: quay.io/frrouting/frr:containerlab-10.7.1
       startup-config: configs/r2.conf
-      binds:
-        - daemons:/etc/frr/daemons
     r3:
       kind: frr
       image: quay.io/frrouting/frr:containerlab-10.7.1
       startup-config: configs/r3.conf
-      binds:
-        - daemons:/etc/frr/daemons
     ra:
       kind: frr
       image: quay.io/frrouting/frr:containerlab-10.7.1
       startup-config: configs/ra.conf
-      binds:
-        - daemons:/etc/frr/daemons
     rb:
       kind: frr
       image: quay.io/frrouting/frr:containerlab-10.7.1
       startup-config: configs/rb.conf
-      binds:
-        - daemons:/etc/frr/daemons
     rdc:
       kind: frr
       image: quay.io/frrouting/frr:containerlab-10.7.1
       startup-config: configs/rdc.conf
-      binds:
-        - daemons:/etc/frr/daemons
 
     ha:
       kind: linux
