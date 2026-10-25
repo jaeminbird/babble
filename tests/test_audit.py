@@ -47,7 +47,7 @@ def test_of_type_filters_by_type():
     for event in _events():
         log.record(event)
     approvals = log.of_type("approval")
-    assert [e.data["tool"] for e in approvals] == ["configure_device"]
+    assert [approval.data["tool"] for approval in approvals] == ["configure_device"]
     assert log.of_type("stop") == []
 
 
@@ -60,7 +60,12 @@ def test_each_event_appends_one_json_line(tmp_path):
     lines = _lines(path)
     assert len(lines) == 4
     records = [json.loads(line) for line in lines]
-    assert [r["type"] for r in records] == ["llm_call", "tool_call", "tool_result", "approval"]
+    assert [record["type"] for record in records] == [
+        "llm_call",
+        "tool_call",
+        "tool_result",
+        "approval",
+    ]
     assert records[0]["data"] == {"model": "m", "n": 1}
     assert records[0]["ts"] == 1.0
 
@@ -233,14 +238,17 @@ def test_concurrent_records_keep_the_chain_intact(tmp_path):
 
     def record_many(worker: int) -> None:
         barrier.wait()
-        for n in range(per_thread):
-            log.record(Event("tool_result", {"worker": worker, "n": n}))
+        for event_number in range(per_thread):
+            log.record(Event("tool_result", {"worker": worker, "n": event_number}))
 
-    threads = [threading.Thread(target=record_many, args=(w,)) for w in range(thread_count)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+    threads = [
+        threading.Thread(target=record_many, args=(worker_number,))
+        for worker_number in range(thread_count)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
     assert len(log.events) == per_thread * thread_count
     assert len(path.read_text(encoding="utf-8").splitlines()) == per_thread * thread_count

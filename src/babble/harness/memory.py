@@ -18,36 +18,42 @@ class NotesStore:
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = path
-        self._notes: list[str] = []
+        self._note_texts: list[str] = []
         if path is not None and path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            notes = data.get("notes") if isinstance(data, dict) else None
-            if not isinstance(notes, list) or not all(isinstance(n, str) for n in notes):
+            saved_data = json.loads(path.read_text(encoding="utf-8"))
+            saved_notes = saved_data.get("notes") if isinstance(saved_data, dict) else None
+            if not isinstance(saved_notes, list) or not all(
+                isinstance(n, str) for n in saved_notes
+            ):
                 raise ValueError(f"{path} is not a notes file")
-            self._notes = list(notes)
+            self._note_texts = list(saved_notes)
 
     def read(self) -> str:
-        if not self._notes:
-            return NO_NOTES
-        return "\n".join(f"{i}. {note}" for i, note in enumerate(self._notes, start=1))
+        numbered_notes = [
+            f"{note_number}. {note_text}"
+            for note_number, note_text in enumerate(self._note_texts, start=1)
+        ]
+        return _joined_or_placeholder(numbered_notes)
 
     def render(self) -> str:
-        if not self._notes:
-            return NO_NOTES
-        return "\n".join(self._notes)
+        return _joined_or_placeholder(self._note_texts)
 
     def append(self, text: str) -> None:
-        self._notes.append(text)
-        self._save()
+        self._note_texts.append(text)
+        self._write_notes_file()
 
     def replace(self, text: str) -> None:
-        self._notes = [text]
-        self._save()
+        self._note_texts = [text]
+        self._write_notes_file()
 
-    def _save(self) -> None:
+    def _write_notes_file(self) -> None:
         if self.path is None:
             return
-        self.path.write_text(json.dumps({"notes": self._notes}, indent=2), encoding="utf-8")
+        self.path.write_text(json.dumps({"notes": self._note_texts}, indent=2), encoding="utf-8")
+
+
+def _joined_or_placeholder(lines: list[str]) -> str:
+    return "\n".join(lines) if lines else NO_NOTES
 
 
 NOTES_TOOL = "notes"
@@ -61,18 +67,18 @@ NOTES_DESCRIPTION = (
 
 def make_notes_tool(store: NotesStore) -> ToolSpec:
     def handler(tool_input: dict) -> ToolResult:
-        action = tool_input.get("action")
-        text = tool_input.get("text")
-        if action == "read":
+        requested_action = tool_input.get("action")
+        note_text = tool_input.get("text")
+        if requested_action == "read":
             return ToolResult(store.read())
-        if action not in ("append", "replace"):
-            return ToolResult(f"Unknown action: {action!r}", is_error=True)
-        if not isinstance(text, str) or not text.strip():
-            return ToolResult(f"action {action!r} needs non-empty text", is_error=True)
-        if action == "append":
-            store.append(text)
+        if requested_action not in ("append", "replace"):
+            return ToolResult(f"Unknown action: {requested_action!r}", is_error=True)
+        if not isinstance(note_text, str) or not note_text.strip():
+            return ToolResult(f"action {requested_action!r} needs non-empty text", is_error=True)
+        if requested_action == "append":
+            store.append(note_text)
             return ToolResult("Note added.")
-        store.replace(text)
+        store.replace(note_text)
         return ToolResult("Notes replaced.")
 
     return ToolSpec(
@@ -88,7 +94,6 @@ def make_notes_tool(store: NotesStore) -> ToolSpec:
             "additionalProperties": False,
         },
         handler=handler,
-        mutating=False,
         parallel_safe=False,
     )
 
@@ -103,34 +108,42 @@ def render_transcript(messages: list[dict[str, Any]]) -> str:
     Text is verbatim, calls and results are one line each, thinking is skipped."""
     sections = []
     for message in messages:
-        header = f"{str(message.get('role', '')).upper()}:"
+        role_header = f"{str(message.get('role', '')).upper()}:"
         content = message.get("content", "")
         if isinstance(content, str):
-            lines = [content]
+            body_lines = [content]
         else:
-            lines = [line for block in content if (line := _render_block(block)) is not None]
-        sections.append("\n".join([header, *lines]))
+            body_lines = [
+                rendered
+                for block in content
+                if (rendered := _render_transcript_block(block)) is not None
+            ]
+        sections.append("\n".join([role_header, *body_lines]))
     return "\n\n".join(sections)
 
 
-def _render_block(block: dict[str, Any]) -> str | None:
-    kind = block.get("type")
-    if kind == "text":
+def _render_transcript_block(block: dict[str, Any]) -> str | None:
+    block_type = block.get("type")
+    if block_type == "text":
         return str(block.get("text", ""))
-    if kind == "tool_use":
+    if block_type == "tool_use":
         return f"CALL {block.get('name')} {json.dumps(block.get('input') or {}, sort_keys=True)}"
-    if kind == "tool_result":
+    if block_type == "tool_result":
         label = "RESULT (error)" if block.get("is_error") else "RESULT"
-        return f"{label} {_result_text(block.get('content'))[:RESULT_CHARS]}"
+        return f"{label} {_tool_result_text(block.get('content'))[:RESULT_CHARS]}"
     return None  # thinking, redacted_thinking and anything else the summary does not need
 
 
-def _result_text(content: Any) -> str:
+def _tool_result_text(content: Any) -> str:
     if content is None:
         return ""
     if isinstance(content, str):
         return content
-    return "\n".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
+    return "\n".join(
+        str(content_block.get("text", ""))
+        for content_block in content
+        if isinstance(content_block, dict)
+    )
 
 
 # ---------------------------------------------------------------- compactor
@@ -180,7 +193,7 @@ class SummaryCompactor:
         return last_usage.total_input >= self.threshold
 
     def compact(self, task: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        response = self.llm.complete(
+        summary_response = self.llm.complete(
             model=self.model,
             system=[{"type": "text", "text": SUMMARY_PROMPT}],
             messages=[{"role": "user", "content": render_transcript(messages)}],
@@ -190,11 +203,11 @@ class SummaryCompactor:
             cache=False,
         )
         if self.accounting is not None:
-            self.accounting.add(response.usage, response.model)
-        summary = response.text.strip()
+            self.accounting.add(summary_response.usage, summary_response.model)
+        progress_summary = summary_response.text.strip()
 
-        parts = [task, f"<progress_summary>\n{summary}\n</progress_summary>"]
+        message_parts = [task, f"<progress_summary>\n{progress_summary}\n</progress_summary>"]
         if self.notes is not None:
-            parts.append(f"<notes>\n{self.notes.render()}\n</notes>")
-        parts.append("Context was compacted. Continue the investigation from the summary.")
-        return [{"role": "user", "content": "\n\n".join(parts)}]
+            message_parts.append(f"<notes>\n{self.notes.render()}\n</notes>")
+        message_parts.append("Context was compacted. Continue the investigation from the summary.")
+        return [{"role": "user", "content": "\n\n".join(message_parts)}]

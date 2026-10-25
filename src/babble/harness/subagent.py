@@ -40,9 +40,9 @@ def make_inspect_device_tool(
     audit: AuditLog,
     approver: Approver,
 ) -> ToolSpec:
-    def handle(inp: dict[str, Any]) -> ToolResult:
-        device = inp.get("device")
-        question = inp.get("question")
+    def handle(tool_input: dict[str, Any]) -> ToolResult:
+        device = tool_input.get("device")
+        question = tool_input.get("question")
         if device not in topology.routers():
             return ToolResult(
                 f"Not run: {device!r} is not a router. Routers: {', '.join(topology.routers())}",
@@ -51,25 +51,27 @@ def make_inspect_device_tool(
         if not isinstance(question, str) or not question.strip():
             return ToolResult("Not run: question must be a non-empty string.", is_error=True)
 
-        run = _investigate(device, question, llm, lab, harness_config, accounting, audit, approver)
+        investigation = _investigate(
+            device, question, llm, lab, harness_config, accounting, audit, approver
+        )
         audit.record(
             Event(
                 "subagent",
                 {
                     "device": device,
                     "question": question,
-                    "stop_reason": run.stop_reason,
-                    "turns": run.turns,
+                    "stop_reason": investigation.stop_reason,
+                    "turns": investigation.turns,
                 },
             )
         )
-        if run.finish_tool_input is None:
+        if investigation.finish_tool_input is None:
             return ToolResult(
-                f"Subagent for {device} did not finish: stop_reason {run.stop_reason} "
-                f"after {run.turns} turns.",
+                f"Subagent for {device} did not finish: stop_reason {investigation.stop_reason} "
+                f"after {investigation.turns} turns.",
                 is_error=True,
             )
-        return ToolResult(_report(device, run.finish_tool_input))
+        return ToolResult(_report(device, investigation.finish_tool_input))
 
     return ToolSpec(
         name="inspect_device",
@@ -115,7 +117,7 @@ def _investigate(
         compaction_threshold=None,
         memory_notes=False,
     )
-    child = Agent(
+    child_agent = Agent(
         llm=llm,
         tools=_child_tools(lab, device),
         config=child_config,
@@ -126,7 +128,7 @@ def _investigate(
         accounting=accounting,
         finish_tool_name=FINDINGS_TOOL,
     )
-    return child.run(f"Router: {device}\nQuestion: {question}")
+    return child_agent.run(f"Router: {device}\nQuestion: {question}")
 
 
 def _child_tools(lab: LabBackend, device: str) -> list[ToolSpec]:
@@ -140,13 +142,13 @@ def _child_tools(lab: LabBackend, device: str) -> list[ToolSpec]:
             input_schema=_schema(
                 {"command": _string("A show command, e.g. 'show ip route json'.")}
             ),
-            handler=_show(lab, device),
+            handler=_build_show_handler(lab, device),
         ),
         ToolSpec(
             name="ping",
             description=f"Ping an IP address from {device} and get 'N/N received' with the output.",
             input_schema=_schema({"target": _string("An IP address, e.g. 10.100.0.2.")}),
-            handler=_ping(lab, device),
+            handler=_build_ping_handler(lab, device),
         ),
         ToolSpec(
             name=FINDINGS_TOOL,
@@ -167,33 +169,34 @@ def _child_tools(lab: LabBackend, device: str) -> list[ToolSpec]:
                 "required": ["summary", "facts"],
                 "additionalProperties": False,
             },
-            handler=lambda _inp: ToolResult("Findings recorded."),
+            handler=lambda _tool_input: ToolResult("Findings recorded."),
             strict=True,
         ),
     ]
 
 
-def _show(lab: LabBackend, device: str):
-    def handle(inp: dict[str, Any]) -> ToolResult:
-        command = inp.get("command")
+def _build_show_handler(lab: LabBackend, device: str):
+    def handle(tool_input: dict[str, Any]) -> ToolResult:
+        command = tool_input.get("command")
         if not isinstance(command, str):
             return ToolResult("Not run: command must be a string.", is_error=True)
-        problem = validate_show(command)
-        if problem:
+        command_problem = validate_show(command)
+        if command_problem:
             return ToolResult(
-                f"Not run: {problem}. Example: show ip route 172.16.0.0/24 json", is_error=True
+                f"Not run: {command_problem}. Example: show ip route 172.16.0.0/24 json",
+                is_error=True,
             )
         try:
             return ToolResult(lab.show(device, command))
-        except LabError as exc:
-            return ToolResult(str(exc), is_error=True)
+        except LabError as lab_error:
+            return ToolResult(str(lab_error), is_error=True)
 
     return handle
 
 
-def _ping(lab: LabBackend, device: str):
-    def handle(inp: dict[str, Any]) -> ToolResult:
-        target = inp.get("target")
+def _build_ping_handler(lab: LabBackend, device: str):
+    def handle(tool_input: dict[str, Any]) -> ToolResult:
+        target = tool_input.get("target")
         if not isinstance(target, str):
             return ToolResult("Not run: target must be an IP address string.", is_error=True)
         try:
@@ -201,10 +204,12 @@ def _ping(lab: LabBackend, device: str):
         except ValueError:
             return ToolResult(f"Not run: {target!r} is not an IP address.", is_error=True)
         try:
-            result = lab.ping(device, target)
-        except LabError as exc:
-            return ToolResult(str(exc), is_error=True)
-        return ToolResult(f"{result.received}/{result.sent} received\n{result.output}")
+            ping_result = lab.ping(device, target)
+        except LabError as lab_error:
+            return ToolResult(str(lab_error), is_error=True)
+        return ToolResult(
+            f"{ping_result.received}/{ping_result.sent} received\n{ping_result.output}"
+        )
 
     return handle
 
