@@ -1,0 +1,17 @@
+id: link-degradation
+title: Core link r3 to the data center edge drops 40 percent of packets
+topology: metro
+difficulty: hard
+fixable: false
+alert: >
+  Users at both sites report intermittent timeouts and very slow transfers to the
+  data center server 172.16.0.10. Traffic between site A and site B looks fine.
+inject:
+  - device: r3
+    host: ["tc", "qdisc", "add", "dev", "eth3", "root", "netem", "loss", "40%"]
+    revert: ["tc", "qdisc", "del", "dev", "eth3", "root"]
+checks:
+  - {kind: ping, device: ha, target: 172.16.0.10}
+  - {kind: ping, device: hb, target: 172.16.0.10}
+  - {kind: ping, device: ha, target: 192.168.2.10}
+root_cause: {device: r3, category: link_degradation}

@@ -1,0 +1,14 @@
+id: no-fault-control
+title: Control case with no fault injected; site B reports slowness only
+topology: metro
+difficulty: medium
+fixable: false
+alert: >
+  Site B users say the data center server 172.16.0.10 feels slow today.
+  Site A reports nothing unusual.
+inject: []
+checks:
+  - {kind: ping, device: ha, target: 172.16.0.10}
+  - {kind: ping, device: hb, target: 172.16.0.10}
+  - {kind: ping, device: ha, target: 192.168.2.10}
+root_cause: {device: "", category: no_fault}
