@@ -685,3 +685,36 @@ def test_calls_after_a_submission_in_the_same_turn_do_not_run():
     }
     assert result.stop_reason == "diagnosis"
     assert_append_only(llm.calls)
+
+
+# -------------------------------------------------------------- compaction
+
+
+class _CompactAfterFirstTurn:
+    def __init__(self) -> None:
+        self.compacted_with: list[int] = []
+
+    def should_compact(self, last_usage: Usage) -> bool:
+        return last_usage.total_input > 0
+
+    def compact(self, task: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        self.compacted_with.append(len(messages))
+        return [{"role": "user", "content": f"Summary so far of: {task}"}]
+
+
+def test_compaction_starts_a_fresh_conversation_and_is_audited():
+    compactor = _CompactAfterFirstTurn()
+    usage = Usage(input_tokens=500)
+    agent, llm, audit = _make(
+        [response(tool_use("show", {}, id="t1"), usage=usage), response(_submit())],
+        compactor=compactor,
+    )
+    result = agent.run("task")
+    assert result.stop_reason == "diagnosis"
+    assert compactor.compacted_with == [3]
+    second = llm.calls[1]["messages"]
+    # Compaction runs before the second request, which then holds only the summary.
+    assert second == [{"role": "user", "content": "Summary so far of: task"}]
+    compaction = audit.of_type("compaction")[0].data
+    assert compaction == {"turn": 2, "messages_before": 3, "messages_after": 1}
+    assert_append_only(llm.calls)
