@@ -75,14 +75,14 @@ class FakeLLMClient:
         return self._responses.pop(0)
 
 
-_tool_ids = itertools.count(1)
+_fake_tool_use_numbers = itertools.count(1)
 
 
 def tool_use(name: str, input: dict[str, Any], id: str | None = None) -> dict[str, Any]:
     """A tool_use content block for a scripted response."""
     return {
         "type": "tool_use",
-        "id": id or f"toolu_fake{next(_tool_ids):04d}",
+        "id": id or f"toolu_fake{next(_fake_tool_use_numbers):04d}",
         "name": name,
         "input": input,
     }
@@ -136,7 +136,7 @@ class AnthropicClient:
         effort: str | None = None,
         cache: bool = True,
     ) -> LLMResponse:
-        kwargs = _request_kwargs(
+        request_kwargs = _request_kwargs(
             model=model,
             system=system,
             messages=messages,
@@ -147,13 +147,13 @@ class AnthropicClient:
         )
         if self.fallbacks and model in FALLBACK_MODELS:
             endpoint = self._client.beta.messages
-            kwargs["betas"] = [FALLBACK_BETA]
-            kwargs["fallbacks"] = "default"
+            request_kwargs["betas"] = [FALLBACK_BETA]
+            request_kwargs["fallbacks"] = "default"
         else:
             endpoint = self._client.messages
-        with endpoint.stream(**kwargs) as stream:
-            final = stream.get_final_message()
-        return _to_response(final)
+        with endpoint.stream(**request_kwargs) as stream:
+            final_message = stream.get_final_message()
+        return _to_response(final_message)
 
 
 def _request_kwargs(
@@ -187,18 +187,20 @@ def _request_kwargs(
     return kwargs
 
 
-def _to_response(final: Any) -> LLMResponse:
-    usage = final.usage
+def _to_response(final_message: Any) -> LLMResponse:
+    usage = final_message.usage
     return LLMResponse(
-        content=[block.model_dump(mode="json", exclude_none=True) for block in final.content],
-        stop_reason=final.stop_reason,
+        content=[
+            block.model_dump(mode="json", exclude_none=True) for block in final_message.content
+        ],
+        stop_reason=final_message.stop_reason,
         usage=Usage(
             input_tokens=usage.input_tokens or 0,
             output_tokens=usage.output_tokens or 0,
             cache_creation_input_tokens=usage.cache_creation_input_tokens or 0,
             cache_read_input_tokens=usage.cache_read_input_tokens or 0,
         ),
-        model=final.model,
+        model=final_message.model,
     )
 
 
@@ -212,17 +214,17 @@ def assert_append_only(calls: list[dict[str, Any]]) -> None:
     recent earlier call in the same conversation must have messages that are an exact prefix
     of this call's messages. Raises AssertionError naming the first differing index.
     """
-    for i, call in enumerate(calls):
+    for call_index, call in enumerate(calls):
         messages = call["messages"]
         if not messages:
             continue
-        for j in range(i - 1, -1, -1):
-            earlier = calls[j]["messages"]
-            if earlier and earlier[0] == messages[0]:
-                for k, old in enumerate(earlier):
-                    if k >= len(messages) or messages[k] != old:
+        for earlier_index in range(call_index - 1, -1, -1):
+            earlier_messages = calls[earlier_index]["messages"]
+            if earlier_messages and earlier_messages[0] == messages[0]:
+                for message_index, earlier_message in enumerate(earlier_messages):
+                    if message_index >= len(messages) or messages[message_index] != earlier_message:
                         raise AssertionError(
-                            f"call {i} is not an append-only extension of call {j}: "
-                            f"first differing message index is {k}"
+                            f"call {call_index} is not an append-only extension of call "
+                            f"{earlier_index}: first differing message index is {message_index}"
                         )
                 break
