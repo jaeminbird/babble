@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from faultline.types import ToolResult, ToolSpec
+from faultline.harness.accounting import Accounting
+from faultline.types import LLMClient, ToolResult, ToolSpec, Usage
 
 NO_NOTES = "(no notes yet)"
 
@@ -130,3 +131,70 @@ def _result_text(content: Any) -> str:
     if isinstance(content, str):
         return content
     return "\n".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
+
+
+# ---------------------------------------------------------------- compactor
+
+SUMMARY_PROMPT = """You are summarizing the working state of a network fault investigation so that
+the investigation can continue in a fresh conversation. The transcript you receive is the full
+history so far: the alert, the agent's messages, its tool calls and their results.
+
+Write a progress summary with these sections, in this order:
+- Alert: the fault as reported, and the devices and addresses involved.
+- Checked: each device, interface, protocol or check examined, with the command results that
+  mattered. Quote the key values exactly (interface states, neighbor states, addresses, errors).
+- Findings: what the evidence shows so far.
+- Ruled out: hypotheses that were checked and rejected, and why.
+- Current best hypothesis: the most likely root cause, with its confidence and the evidence for it.
+- Changes made: every configuration change, with the device, the exact lines applied, and the
+  outcome (verification result, rollback, or errors).
+- Next steps: the specific checks or changes still needed.
+
+Be specific. Name devices, addresses, interfaces and prefixes exactly as they appear. Do not
+invent results that are not in the transcript. If a section has nothing, write "none"."""
+
+COMPACT_EFFORT = "low"
+
+
+class SummaryCompactor:
+    """Replaces a long conversation with a fresh one: a progress summary written by a separate
+    LLM call, plus the working notes. Never mutates the messages it is given."""
+
+    def __init__(
+        self,
+        llm: LLMClient,
+        model: str,
+        threshold: int,
+        notes: NotesStore | None = None,
+        accounting: Accounting | None = None,
+        max_summary_tokens: int = 4000,
+    ) -> None:
+        self.llm = llm
+        self.model = model
+        self.threshold = threshold
+        self.notes = notes
+        self.accounting = accounting
+        self.max_summary_tokens = max_summary_tokens
+
+    def should_compact(self, last_usage: Usage) -> bool:
+        return last_usage.total_input >= self.threshold
+
+    def compact(self, task: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        response = self.llm.complete(
+            model=self.model,
+            system=[{"type": "text", "text": SUMMARY_PROMPT}],
+            messages=[{"role": "user", "content": render_transcript(messages)}],
+            tools=[],
+            max_tokens=self.max_summary_tokens,
+            effort=COMPACT_EFFORT,
+            cache=False,
+        )
+        if self.accounting is not None:
+            self.accounting.add(response.usage, response.model)
+        summary = response.text.strip()
+
+        parts = [task, f"<progress_summary>\n{summary}\n</progress_summary>"]
+        if self.notes is not None:
+            parts.append(f"<notes>\n{self.notes.render()}\n</notes>")
+        parts.append("Context was compacted. Continue the investigation from the summary.")
+        return [{"role": "user", "content": "\n\n".join(parts)}]

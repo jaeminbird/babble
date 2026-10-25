@@ -1,13 +1,16 @@
 import json
 from pathlib import Path
 
+from faultline.harness.accounting import Accounting
 from faultline.harness.memory import (
     NO_NOTES,
     NotesStore,
+    SummaryCompactor,
     make_notes_tool,
     render_transcript,
 )
-from faultline.types import ToolResult
+from faultline.llm import FakeLLMClient, response, text
+from faultline.types import ToolResult, Usage
 
 
 def _run(store: NotesStore, **tool_input) -> ToolResult:
@@ -182,4 +185,98 @@ def test_render_transcript_does_not_mutate_messages():
     ]
     before = copy.deepcopy(messages)
     render_transcript(messages)
+    assert messages == before
+
+
+# ---------------------------------------------------------------- compactor
+
+
+def _transcript_messages() -> list[dict]:
+    return [
+        {"role": "user", "content": "ha cannot reach hb. Diagnose it."},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "t1", "name": "show", "input": {"device": "ra"}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "eth2 up"}],
+        },
+    ]
+
+
+def test_should_compact_at_threshold():
+    compactor = SummaryCompactor(FakeLLMClient([]), "claude-haiku-5-5", threshold=1000)
+    assert compactor.should_compact(Usage(input_tokens=999)) is False
+    assert compactor.should_compact(Usage(input_tokens=1000)) is True
+    # Cache reads and writes count toward the input the model had to read.
+    split = Usage(input_tokens=400, cache_creation_input_tokens=300, cache_read_input_tokens=300)
+    assert compactor.should_compact(split) is True
+
+
+def test_compact_makes_one_toolless_summary_call():
+    llm = FakeLLMClient([response(text("Summary: r1 is fine."))])
+    compactor = SummaryCompactor(llm, "claude-haiku-5-5", threshold=1000)
+    messages = _transcript_messages()
+    compactor.compact("Diagnose it.", messages)
+
+    assert len(llm.calls) == 1
+    call = llm.calls[0]
+    assert call["model"] == "claude-haiku-5-5"
+    assert call["tools"] == []
+    assert call["effort"] == "low"
+    assert call["cache"] is False
+    assert call["messages"] == [{"role": "user", "content": render_transcript(messages)}]
+    assert len(call["system"]) == 1
+    assert "progress summary" in call["system"][0]["text"].lower()
+
+
+def test_compact_returns_single_user_message_with_task_summary_and_notes(tmp_path: Path):
+    store = NotesStore(tmp_path / "notes.json")
+    store.append("rdc eth3 is shutdown")
+    llm = FakeLLMClient([response(text("  Ruled out ospf.  "))])
+    compactor = SummaryCompactor(llm, "claude-haiku-5-5", threshold=1000, notes=store)
+
+    fresh = compactor.compact("Diagnose it.", _transcript_messages())
+
+    assert fresh == [
+        {
+            "role": "user",
+            "content": (
+                "Diagnose it.\n\n"
+                "<progress_summary>\nRuled out ospf.\n</progress_summary>\n\n"
+                "<notes>\nrdc eth3 is shutdown\n</notes>\n\n"
+                "Context was compacted. Continue the investigation from the summary."
+            ),
+        }
+    ]
+
+
+def test_compact_without_notes_omits_notes_section():
+    llm = FakeLLMClient([response(text("Summary."))])
+    compactor = SummaryCompactor(llm, "claude-haiku-5-5", threshold=1000)
+    (fresh,) = compactor.compact("Diagnose it.", _transcript_messages())
+    assert "<notes>" not in fresh["content"]
+    assert "<progress_summary>\nSummary.\n</progress_summary>" in fresh["content"]
+
+
+def test_compact_adds_summary_usage_to_accounting():
+    usage = Usage(input_tokens=5000, output_tokens=300)
+    llm = FakeLLMClient([response(text("s"), usage=usage, model="claude-haiku-5-5")])
+    accounting = Accounting()
+    compactor = SummaryCompactor(llm, "claude-haiku-5-5", threshold=1000, accounting=accounting)
+    compactor.compact("task", _transcript_messages())
+    assert accounting.usage == usage
+    assert accounting.calls == 1
+
+
+def test_compact_never_mutates_messages():
+    import copy
+
+    messages = _transcript_messages()
+    before = copy.deepcopy(messages)
+    llm = FakeLLMClient([response(text("s"))])
+    SummaryCompactor(llm, "claude-haiku-5-5", threshold=1000).compact("task", messages)
     assert messages == before
