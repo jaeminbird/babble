@@ -50,8 +50,8 @@ def _show_spec(handler=None, **kwargs: Any) -> ToolSpec:
     )
 
 
-def _submit(id: str | None = None) -> dict[str, Any]:
-    return tool_use(SUBMIT_TOOL, dict(DIAGNOSIS), id=id)
+def _submit(tool_use_id: str | None = None) -> dict[str, Any]:
+    return tool_use(SUBMIT_TOOL, dict(DIAGNOSIS), id=tool_use_id)
 
 
 def _make(
@@ -76,7 +76,7 @@ def _make(
 
 
 def _types(audit: AuditLog) -> list[str]:
-    return [e.type for e in audit.events]
+    return [event.type for event in audit.events]
 
 
 # ------------------------------------------------------------------ happy path
@@ -84,7 +84,7 @@ def _types(audit: AuditLog) -> list[str]:
 
 def test_reads_then_submits_and_stops_with_diagnosis():
     first = response(tool_use("show", {"device": "r3"}, id="toolu_a"))
-    agent, llm, audit = _make([first, response(_submit(id="toolu_b"))])
+    agent, llm, audit = _make([first, response(_submit(tool_use_id="toolu_b"))])
     result = agent.run("eth3 is down")
 
     assert result.stop_reason == "diagnosis"
@@ -94,16 +94,16 @@ def test_reads_then_submits_and_stops_with_diagnosis():
     assert result.diagnosis.fix_applied is True
     assert result.tool_calls == 2
 
-    msgs = result.messages
-    assert msgs[0] == {"role": "user", "content": "eth3 is down"}
+    messages = result.messages
+    assert messages[0] == {"role": "user", "content": "eth3 is down"}
     # The assistant turn is stored as the block list the API returned.
-    assert msgs[1] == {"role": "assistant", "content": first.content}
+    assert messages[1] == {"role": "assistant", "content": first.content}
     # One user message carries the tool result, with no is_error key for a success.
-    assert msgs[2] == {
+    assert messages[2] == {
         "role": "user",
         "content": [{"type": "tool_result", "tool_use_id": "toolu_a", "content": "up"}],
     }
-    assert msgs[4]["content"][0]["tool_use_id"] == "toolu_b"
+    assert messages[4]["content"][0]["tool_use_id"] == "toolu_b"
 
     assert _types(audit)[:2] == ["llm_call", "tool_call"]
     assert "diagnosis" in _types(audit)
@@ -119,7 +119,7 @@ def test_request_shape_on_every_call():
     first, second = llm.calls
     assert first["system"] == [{"type": "text", "text": SYSTEM}]
     assert first["tools"] == [spec.to_api() for spec in agent.tools]
-    assert [t["name"] for t in first["tools"]] == ["show", SUBMIT_TOOL]
+    assert [tool["name"] for tool in first["tools"]] == ["show", SUBMIT_TOOL]
     assert first["cache"] is True
     assert first["effort"] == "medium"
     assert first["max_tokens"] == 16000
@@ -459,7 +459,11 @@ def test_read_only_batch_runs_concurrently_and_keeps_call_order():
     # A serial run would hit the barrier timeout and return an error instead.
     barrier = threading.Barrier(2, timeout=5)
     tools = [
-        _show_spec(name=name, handler=lambda _i, n=name: _meet(barrier, n), parallel_safe=True)
+        _show_spec(
+            name=name,
+            handler=lambda _i, tool_name=name: _meet(barrier, tool_name),
+            parallel_safe=True,
+        )
         for name in ("show_a", "show_b")
     ] + [_submit_spec()]
     agent, llm, _ = _make(
@@ -471,9 +475,9 @@ def test_read_only_batch_runs_concurrently_and_keeps_call_order():
     )
     result = agent.run("task")
     blocks = result.messages[2]["content"]
-    assert [b["tool_use_id"] for b in blocks] == ["ta", "tb"]
-    assert [b["content"] for b in blocks] == ["show_a ok", "show_b ok"]
-    assert all("is_error" not in b for b in blocks)
+    assert [block["tool_use_id"] for block in blocks] == ["ta", "tb"]
+    assert [block["content"] for block in blocks] == ["show_a ok", "show_b ok"]
+    assert all("is_error" not in block for block in blocks)
     assert result.stop_reason == "diagnosis"
     assert_append_only(llm.calls)
 
@@ -505,7 +509,7 @@ def test_results_keep_call_order_when_a_later_call_finishes_first():
     )
     result = agent.run("task")
     blocks = result.messages[2]["content"]
-    assert [b["content"] for b in blocks] == ["slow done", "fast done"]
+    assert [block["content"] for block in blocks] == ["slow done", "fast done"]
     assert_append_only(llm.calls)
 
 
@@ -572,17 +576,19 @@ def test_mixed_batch_with_a_mutating_tool_runs_in_order_and_asks_inline():
     )
     result = agent.run("task")
     assert ran == ["show", "change"]
-    assert [b["content"] for b in result.messages[2]["content"]] == ["up", "applied"]
+    assert [block["content"] for block in result.messages[2]["content"]] == ["up", "applied"]
     # Serial path: each call finishes before the next is gated, so the approval comes after the
     # read-only call's result.
-    types = [e.type for e in audit.events]
+    types = [event.type for event in audit.events]
     assert types.index("approval") > types.index("tool_result")
     assert_append_only(llm.calls)
 
 
 def test_submit_with_a_read_in_one_turn_still_records_the_diagnosis():
     tools = [_show_spec(), _submit_spec()]
-    agent, llm, _ = _make([response(tool_use("show", {}, id="t1"), _submit(id="t2"))], tools=tools)
+    agent, llm, _ = _make(
+        [response(tool_use("show", {}, id="t1"), _submit(tool_use_id="t2"))], tools=tools
+    )
     result = agent.run("task")
     assert result.stop_reason == "diagnosis"
     assert result.diagnosis is not None
@@ -638,7 +644,7 @@ def test_max_tokens_answers_each_cut_off_call_without_running_it():
 def test_submit_with_missing_fields_is_an_error_the_model_can_fix():
     partial = {"root_cause_device": "r3", "category": "interface_down"}
     agent, llm, audit = _make(
-        [response(tool_use(SUBMIT_TOOL, partial, id="t1")), response(_submit(id="t2"))]
+        [response(tool_use(SUBMIT_TOOL, partial, id="t1")), response(_submit(tool_use_id="t2"))]
     )
     result = agent.run("task")
     first = result.messages[2]["content"][0]
@@ -655,7 +661,7 @@ def test_submit_with_missing_fields_is_an_error_the_model_can_fix():
 def test_submit_with_wrong_types_is_rejected():
     bad = dict(DIAGNOSIS, evidence="a single string", fix_applied="yes")
     agent, llm, _ = _make(
-        [response(tool_use(SUBMIT_TOOL, bad, id="t1")), response(_submit(id="t2"))]
+        [response(tool_use(SUBMIT_TOOL, bad, id="t1")), response(_submit(tool_use_id="t2"))]
     )
     result = agent.run("task")
     content = result.messages[2]["content"][0]["content"]
@@ -672,7 +678,7 @@ def test_calls_after_a_submission_in_the_same_turn_do_not_run():
         _submit_spec(),
     ]
     agent, llm, _ = _make(
-        [response(_submit(id="t1"), tool_use("propose_change", {}, id="t2"))],
+        [response(_submit(tool_use_id="t1"), tool_use("propose_change", {}, id="t2"))],
         tools=tools,
         approver=ScriptedApprover([]),  # would fail the test if the change were gated
     )
