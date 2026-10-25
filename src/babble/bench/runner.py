@@ -97,7 +97,8 @@ def trial_file_path(
 
 
 def service_checks_for(topology: Topology, scenario: Scenario) -> list[Check]:
-    """The health checks the lab is judged on: the topology's, then the scenario's own, deduplicated."""
+    """The health checks the lab is judged on: the topology's, then the scenario's own,
+    deduplicated."""
     return list(dict.fromkeys(topology.health_checks + scenario.checks))
 
 

@@ -99,7 +99,7 @@ WSL stops an idle distro, which stops the lab. Keep it alive during long runs wi
 
 **Scoring.** A fixable scenario is solved when every service check passes at the end. A control scenario is solved when the category is right and no change was kept. Root cause is scored on device and category. The report adds pass^k, cost per solved task, cache hit rate, rollbacks, unnecessary changes and collateral damage.
 
-**Ablations.** Presets turn one harness feature off at a time: `full`, `no_subagents`, `no_truncation`, `no_caching`, `no_memory`, `no_compaction`, and `no_safety` (no approval, no verification, no rollback).
+**Ablations.** Presets turn one harness feature off at a time: `full`, `no_subagents`, `no_truncation`, `no_caching`, `no_memory`, `no_compaction`, and `no_safety` (no approval, no verification, no rollback). Two arms replace client-side compaction with the API's server-side context management: `server_compaction` (the `compact` edit) and `server_clear_tool_uses` (the `clear_tool_uses` edit).
 
 ```sh
 babble bench --scenarios all --presets full,no_subagents,no_safety --trials 3

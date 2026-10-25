@@ -70,6 +70,7 @@ class LLMClient(Protocol):
         max_tokens: int,
         effort: str | None = None,
         cache: bool = True,
+        server_context_management: str | None = None,
     ) -> LLMResponse: ...
 
 
@@ -96,7 +97,7 @@ class ToolSpec:
     strict: bool = False
 
     def to_api(self) -> dict[str, Any]:
-        api = {
+        api: dict[str, Any] = {
             "name": self.name,
             "description": self.description,
             "input_schema": self.input_schema,
@@ -178,7 +179,8 @@ class LabBackend(Protocol):
     def ping(self, device: str, target: str) -> PingResult: ...
 
     def host_exec(self, device: str, argv: list[str]) -> str:
-        """Run a raw command in the device container. Bench-only (fault injection), never an agent tool."""
+        """Run a raw command in the device container. Bench-only (fault injection), never an
+        agent tool."""
         ...
 
 
@@ -305,6 +307,8 @@ class HarnessConfig:
     subagents: bool = True
     # Start a fresh conversation from a summary once input tokens pass this. None = off.
     compaction_threshold: int | None = 120_000
+    # Let the API manage context server-side instead (ablation arm). None = off.
+    server_context_management: Literal["compaction", "clear_tool_uses"] | None = None
     # Give the agent a notes tool whose contents survive compaction.
     memory_notes: bool = True
 

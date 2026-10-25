@@ -132,6 +132,20 @@ def test_request_shape_on_every_call():
     assert_append_only(llm.calls)
 
 
+def test_server_context_management_setting_reaches_every_llm_call():
+    config = HarnessConfig(server_context_management="clear_tool_uses", compaction_threshold=None)
+    agent, llm, _ = _make(
+        [response(tool_use("show", {}, tool_use_id="t1")), response(_submit())], config=config
+    )
+
+    agent.run("task")
+
+    assert [call["server_context_management"] for call in llm.calls] == [
+        "clear_tool_uses",
+        "clear_tool_uses",
+    ]
+
+
 def test_usage_and_cost_are_accumulated():
     usage = Usage(input_tokens=1000, output_tokens=100)
     agent, llm, audit = _make(
@@ -202,7 +216,9 @@ def test_truncation_off_keeps_full_output():
     tools = [_show_spec(handler=lambda _i: ToolResult(big)), _submit_spec()]
     config = HarnessConfig(truncate_tool_output=None)
     agent, llm, _ = _make(
-        [response(tool_use("show", {}, tool_use_id="t1")), response(_submit())], tools=tools, config=config
+        [response(tool_use("show", {}, tool_use_id="t1")), response(_submit())],
+        tools=tools,
+        config=config,
     )
     result = agent.run("task")
     assert result.messages[2]["content"][0]["content"] == big
@@ -461,7 +477,10 @@ def test_read_only_batch_runs_concurrently_and_keeps_call_order():
     ] + [_submit_spec()]
     agent, llm, _ = _make(
         [
-            response(tool_use("show_a", {}, tool_use_id="ta"), tool_use("show_b", {}, tool_use_id="tb")),
+            response(
+                tool_use("show_a", {}, tool_use_id="ta"),
+                tool_use("show_b", {}, tool_use_id="tb"),
+            ),
             response(_submit()),
         ],
         tools=tools,
@@ -495,7 +514,10 @@ def test_results_keep_call_order_when_a_later_call_finishes_first():
     ]
     agent, llm, _ = _make(
         [
-            response(tool_use("slow", {}, tool_use_id="t1"), tool_use("fast", {}, tool_use_id="t2")),
+            response(
+                tool_use("slow", {}, tool_use_id="t1"),
+                tool_use("fast", {}, tool_use_id="t2"),
+            ),
             response(_submit()),
         ],
         tools=tools,
@@ -540,7 +562,10 @@ def test_mixed_batch_with_a_mutating_tool_runs_in_order_and_asks_inline():
     approver = ScriptedApprover([True])
     agent, llm, audit = _make(
         [
-            response(tool_use("show", {}, tool_use_id="t1"), tool_use("propose_change", {}, tool_use_id="t2")),
+            response(
+                tool_use("show", {}, tool_use_id="t1"),
+                tool_use("propose_change", {}, tool_use_id="t2"),
+            ),
             response(_submit()),
         ],
         tools=tools,
@@ -616,7 +641,10 @@ def test_max_tokens_answers_each_cut_off_call_without_running_it():
 def test_submit_with_missing_fields_is_an_error_the_model_can_fix():
     partial = {"root_cause_device": "r3", "category": "interface_down"}
     agent, llm, audit = _make(
-        [response(tool_use(SUBMIT_TOOL, partial, tool_use_id="t1")), response(_submit(tool_use_id="t2"))]
+        [
+            response(tool_use(SUBMIT_TOOL, partial, tool_use_id="t1")),
+            response(_submit(tool_use_id="t2")),
+        ]
     )
     result = agent.run("task")
     first = result.messages[2]["content"][0]
@@ -633,7 +661,10 @@ def test_submit_with_missing_fields_is_an_error_the_model_can_fix():
 def test_submit_with_wrong_types_is_rejected():
     bad = dict(DIAGNOSIS, evidence="a single string", fix_applied="yes")
     agent, llm, _ = _make(
-        [response(tool_use(SUBMIT_TOOL, bad, tool_use_id="t1")), response(_submit(tool_use_id="t2"))]
+        [
+            response(tool_use(SUBMIT_TOOL, bad, tool_use_id="t1")),
+            response(_submit(tool_use_id="t2")),
+        ]
     )
     result = agent.run("task")
     content = result.messages[2]["content"][0]["content"]
@@ -782,7 +813,8 @@ def test_nudge_names_the_custom_finish_tool():
 
 
 def test_calls_after_a_custom_finish_in_the_same_turn_do_not_run():
-    # A mutating call makes the batch serial, so the finish is handled before the next call is gated.
+    # A mutating call makes the batch serial, so the finish is handled before the next call
+    # is gated.
     ran = []
     change = _show_spec(
         name="propose_change",

@@ -154,6 +154,7 @@ class _Run:
                     max_tokens=harness_config.max_tokens,
                     effort=harness_config.effort,
                     cache=harness_config.prompt_caching,
+                    server_context_management=harness_config.server_context_management,
                 )
             except Exception as exc:  # noqa: BLE001
                 return self._end_run_with_error("llm.complete", turn, exc)
@@ -217,9 +218,7 @@ class _Run:
 
     def _end_run_with_error(self, where: str, turn: int, exc: Exception) -> RunResult:
         error_message = f"{type(exc).__name__}: {exc}"
-        self.audit.record(
-            Event("error", {"where": where, "turn": turn, "message": error_message})
-        )
+        self.audit.record(Event("error", {"where": where, "turn": turn, "message": error_message}))
         return self._stop("error", error_message=error_message)
 
     def _stop(self, reason: str, error_message: str | None = None) -> RunResult:
@@ -319,7 +318,8 @@ class _Run:
                 parsed_diagnosis = Diagnosis.from_tool_input(call.input)
             except ValueError as problem:
                 result = ToolResult(
-                    f"Diagnosis not recorded: {problem}. Call {SUBMIT_TOOL} again with every field.",
+                    f"Diagnosis not recorded: {problem}. "
+                    f"Call {SUBMIT_TOOL} again with every field.",
                     is_error=True,
                 )
         result = self._apply_post_hooks_truncate_and_audit(call, result)

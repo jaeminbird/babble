@@ -25,7 +25,8 @@ _BLOCKED_CONFIG_PATTERNS: list[re.Pattern[str]] = [
 
 
 def validate_read_only_show_command(command: str) -> str | None:
-    """Return an error message if `command` is not an acceptable read-only show command, else None."""
+    """Return an error message if `command` is not an acceptable read-only show command,
+    else None."""
     stripped_command = command.strip()
     if not stripped_command.lower().startswith("show "):
         return "command must start with 'show '"

@@ -50,9 +50,7 @@ def make_inspect_device_tool(
         if not isinstance(question, str) or not question.strip():
             return ToolResult("Not run: question must be a non-empty string.", is_error=True)
 
-        investigation = _investigate(
-            device, question, llm, lab, harness_config, accounting, audit
-        )
+        investigation = _investigate(device, question, llm, lab, harness_config, accounting, audit)
         audit.record(
             Event(
                 "subagent",
@@ -113,6 +111,7 @@ def _investigate(
         max_turns=12,
         subagents=False,
         compaction_threshold=None,
+        server_context_management=None,
         memory_notes=False,
     )
     child_agent = Agent(

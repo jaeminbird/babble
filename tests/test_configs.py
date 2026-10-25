@@ -12,6 +12,8 @@ def test_every_preset_is_named_after_the_one_feature_it_turns_off():
         "no_caching",
         "no_memory",
         "no_compaction",
+        "server_compaction",
+        "server_clear_tool_uses",
         "no_safety",
     ]
 
@@ -28,6 +30,14 @@ def test_full_is_the_default_harness_config():
         ("no_caching", {"prompt_caching": False}),
         ("no_memory", {"memory_notes": False}),
         ("no_compaction", {"compaction_threshold": None}),
+        (
+            "server_compaction",
+            {"server_context_management": "compaction", "compaction_threshold": None},
+        ),
+        (
+            "server_clear_tool_uses",
+            {"server_context_management": "clear_tool_uses", "compaction_threshold": None},
+        ),
         (
             "no_safety",
             {"safety": False, "verify_after_change": False, "auto_rollback": False},
@@ -48,7 +58,9 @@ def test_preset_returns_a_copy_so_callers_cannot_change_the_shared_preset():
 
 def test_preset_overrides_the_model_only_when_given():
     assert harness_config_for_preset("full").model == HarnessConfig().model
-    assert harness_config_for_preset("no_memory", model="claude-haiku-5-5").model == "claude-haiku-5-5"
+    assert (
+        harness_config_for_preset("no_memory", model="claude-haiku-5-5").model == "claude-haiku-5-5"
+    )
     assert harness_config_for_preset("no_memory", model="claude-haiku-5-5").memory_notes is False
 
 

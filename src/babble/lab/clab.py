@@ -152,9 +152,7 @@ class ClabLab:
     def ping(self, device: str, target: str) -> PingResult:
         # Loss is not an error: ping exits non-zero when packets are lost.
         argv = ["ping", "-c", str(PING_PACKET_COUNT), "-W", "1", "-i", "0.2", target]
-        completed_process = self._run_in_container(
-            device, argv, timeout=PING_PACKET_COUNT * 2 + 10
-        )
+        completed_process = self._run_in_container(device, argv, timeout=PING_PACKET_COUNT * 2 + 10)
         output = completed_process.stdout + completed_process.stderr
         statistics_match = _PING_STATISTICS.search(output)
         if statistics_match is None:
@@ -214,8 +212,7 @@ class LabManager:
 
     def take_baseline(self) -> None:
         self._baseline_snapshots_by_router = {
-            router_name: self.lab.snapshot(router_name)
-            for router_name in self.topology.routers()
+            router_name: self.lab.snapshot(router_name) for router_name in self.topology.routers()
         }
 
     def reset(self) -> None:
