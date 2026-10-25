@@ -296,3 +296,65 @@ def test_rollback_is_not_recorded_for_a_change_that_auto_rolled_back():
     result = manager.rollback("r3")
     assert result.is_error
     assert "No kept change" in result.content
+
+
+class SlowRegressionLab(ScriptedLab):
+    """A change that looks fine at first: site B's ping only fails from the third evaluation on,
+    the way a BGP session takes a few seconds to drop."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.site_b_pings_after_change = 0
+        self.change_applied = False
+
+    def configure(self, device, lines):
+        self.change_applied = True
+        return super().configure(device, lines)
+
+    def restore(self, device, config):
+        self.change_applied = False
+        return super().restore(device, config)
+
+    def ping(self, device, target, count=3):
+        if self.change_applied and device == "hb":
+            self.site_b_pings_after_change += 1
+            if self.site_b_pings_after_change >= 3:
+                return super().ping(device, "unreachable", count)
+        return super().ping(device, target, count)
+
+
+def test_regression_that_appears_after_the_change_is_caught_and_rolled_back():
+    lab = SlowRegressionLab(
+        devices=["r3", "hb"],
+        hosts={"hb"},
+        responses={},
+        pings={("hb", "192.168.2.10"): True},
+    )
+    manager = ChangeManager(
+        lab,
+        [PING_B],
+        HarnessConfig(),
+        AuditLog(),
+        convergence_wait_seconds=0.05,
+        poll_interval_seconds=0.01,
+    )
+    result = manager.apply("r3", ["router bgp 65000"], "test")
+    assert result.is_error
+    assert "rolled back" in result.content
+    assert manager.changes[-1]["rolled_back"] is True
+
+
+def test_convergence_wait_returns_once_checks_pass_after_minimum_observation():
+    sleeps = []
+    lab = ScriptedLab(**make_lab())
+    manager = ChangeManager(
+        lab,
+        [PING_DC],
+        HarnessConfig(),
+        AuditLog(),
+        convergence_wait_seconds=0.0,
+        sleep=sleeps.append,
+    )
+    result = manager.apply("r3", FIX, RATIONALE)
+    assert not result.is_error
+    assert sleeps == []

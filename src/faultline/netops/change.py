@@ -5,7 +5,8 @@ Every change follows the same path:
 1. Blocked config lines are rejected before anything is touched.
 2. The device is snapshotted, and the service checks are evaluated (if verification is on).
 3. The lines are applied. A CLI error restores the snapshot.
-4. The checks are evaluated again. A check that passed before and fails now is a regression.
+4. The checks are evaluated again once routing has had time to converge (see
+   `convergence_wait_seconds`). A check that passed before and fails now is a regression.
    With auto_rollback on, a regression restores the snapshot. Otherwise the change is kept and
    the regression is reported.
 
@@ -15,13 +16,18 @@ at a time, newest first.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from faultline.harness.audit import AuditLog
 from faultline.netops.checks import evaluate_all
 from faultline.netops.commands import blocked_config
 from faultline.types import Check, Event, HarnessConfig, LabBackend, LabError, ToolResult
+
+# Even when every check passes early, keep watching this long: a bad change can take a few
+# seconds to tear down a session.
+MINIMUM_OBSERVATION_SECONDS = 10.0
 
 # Result texts are read by the model, so long lists are cut to this many entries.
 LIST_LIMIT = 8
@@ -45,8 +51,17 @@ class ChangeManager:
         checks: Sequence[Check],
         config: HarnessConfig,
         audit: AuditLog,
+        convergence_wait_seconds: float = 0.0,
+        poll_interval_seconds: float = 3.0,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        """convergence_wait_seconds: how long to let BGP/OSPF settle after a change before
+        judging it. 0 judges immediately (the in-memory test lab converges instantly); a live
+        lab needs around 30."""
         self.lab = lab
+        self.convergence_wait_seconds = convergence_wait_seconds
+        self.poll_interval_seconds = poll_interval_seconds
+        self.sleep = sleep
         self.checks = list(dict.fromkeys(checks))  # duplicates would be counted twice
         self.config = config
         self.audit = audit
@@ -91,7 +106,7 @@ class ChangeManager:
                 text += f" Restoring the previous config also failed: {restore_error}."
             return ToolResult(text, is_error=True)
 
-        after = evaluate_all(self.checks, self.lab) if verify else {}
+        after = self._evaluate_after_convergence() if verify else {}
         regressions = [c for c in self.checks if before.get(c) and not after.get(c)]
         regression_names = [c.describe() for c in regressions]
 
@@ -146,6 +161,20 @@ class ChangeManager:
             )
         )
         return ToolResult(self._applied_text(device, len(lines), verify, after, regressions))
+
+    def _evaluate_after_convergence(self) -> dict[Check, bool]:
+        """Poll the checks until they all pass (after a minimum observation window) or the
+        convergence wait runs out, and return the last evaluation."""
+        started = time.monotonic()
+        minimum = min(MINIMUM_OBSERVATION_SECONDS, self.convergence_wait_seconds)
+        while True:
+            results = evaluate_all(self.checks, self.lab)
+            elapsed = time.monotonic() - started
+            if elapsed >= self.convergence_wait_seconds:
+                return results
+            if all(results.values()) and elapsed >= minimum:
+                return results
+            self.sleep(self.poll_interval_seconds)
 
     def _applied_text(
         self,

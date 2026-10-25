@@ -17,7 +17,6 @@ from faultline.netops.change import ChangeManager
 from faultline.netops.commands import validate_show
 from faultline.types import (
     FAULT_CATEGORIES,
-    HarnessConfig,
     LabBackend,
     LabError,
     ToolResult,
@@ -31,14 +30,11 @@ def build_tools(
     lab: LabBackend,
     topology: Topology,
     change_manager: ChangeManager,
-    config: HarnessConfig,
     extra: Sequence[ToolSpec] = (),
 ) -> list[ToolSpec]:
     """The tools for one run, in a fixed order: list_devices, show, ping, propose_change,
     rollback, then `extra` (subagent and notes tools), then submit_diagnosis last.
     """
-    del config  # reserved: the change manager already holds the verify and rollback flags
-
     specs = [
         ToolSpec(
             name="list_devices",
