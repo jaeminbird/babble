@@ -1,0 +1,230 @@
+"""Shared contracts. Every module builds against these; change them only on main."""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from typing import Any, Literal, Protocol
+
+# --------------------------------------------------------------------------- LLM
+
+
+@dataclass
+class Usage:
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
+
+    def __add__(self, other: Usage) -> Usage:
+        return Usage(
+            self.input_tokens + other.input_tokens,
+            self.output_tokens + other.output_tokens,
+            self.cache_creation_input_tokens + other.cache_creation_input_tokens,
+            self.cache_read_input_tokens + other.cache_read_input_tokens,
+        )
+
+    @property
+    def total_input(self) -> int:
+        return self.input_tokens + self.cache_creation_input_tokens + self.cache_read_input_tokens
+
+
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+
+@dataclass
+class LLMResponse:
+    # Raw content blocks as plain dicts. The loop appends these to history verbatim:
+    # thinking blocks must go back unchanged, and history is append-only.
+    content: list[dict[str, Any]]
+    stop_reason: str
+    usage: Usage
+    model: str
+
+    @property
+    def tool_calls(self) -> list[ToolCall]:
+        return [
+            ToolCall(b["id"], b["name"], b.get("input") or {})
+            for b in self.content
+            if b.get("type") == "tool_use"
+        ]
+
+    @property
+    def text(self) -> str:
+        return "".join(b.get("text", "") for b in self.content if b.get("type") == "text")
+
+
+class LLMClient(Protocol):
+    def complete(
+        self,
+        *,
+        model: str,
+        system: list[dict[str, Any]],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        max_tokens: int,
+        effort: str | None = None,
+        cache: bool = True,
+    ) -> LLMResponse: ...
+
+
+# ------------------------------------------------------------------------- tools
+
+
+@dataclass
+class ToolResult:
+    content: str
+    is_error: bool = False
+
+
+@dataclass
+class ToolSpec:
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    handler: Callable[[dict[str, Any]], ToolResult]
+    # Mutating tools change device state. The safety policy gates them; read-only tools run freely.
+    mutating: bool = False
+    # Safe to run concurrently with other parallel_safe calls in the same turn.
+    parallel_safe: bool = True
+
+    def to_api(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "input_schema": self.input_schema,
+        }
+
+
+# ------------------------------------------------------------------------ safety
+
+Decision = Literal["allow", "deny", "ask"]
+
+
+class Approver(Protocol):
+    """Decides on a gated tool call. Returns (approved, note shown to the model)."""
+
+    def approve(self, call: ToolCall, reason: str) -> tuple[bool, str]: ...
+
+
+# --------------------------------------------------------------------------- lab
+
+
+class LabError(Exception):
+    """A lab operation failed (device unknown, command rejected, container down)."""
+
+
+@dataclass
+class PingResult:
+    sent: int
+    received: int
+    output: str
+
+    @property
+    def ok(self) -> bool:
+        return self.received > 0
+
+
+class LabBackend(Protocol):
+    """A running network the agent can inspect and change. Device names are router hostnames."""
+
+    def devices(self) -> list[str]: ...
+
+    def show(self, device: str, command: str) -> str:
+        """Run one read-only vtysh command (e.g. 'show ip bgp summary json'). Returns stdout."""
+        ...
+
+    def configure(self, device: str, lines: list[str]) -> str:
+        """Apply config lines in vtysh configuration mode. Returns any CLI output."""
+        ...
+
+    def snapshot(self, device: str) -> str:
+        """Return the device's running config, for rollback."""
+        ...
+
+    def restore(self, device: str, config: str) -> None:
+        """Replace the running config with a snapshot taken earlier."""
+        ...
+
+    def ping(self, device: str, target: str, count: int = 3) -> PingResult: ...
+
+    def host_exec(self, device: str, argv: list[str]) -> str:
+        """Run a raw command in the device container. Bench-only (fault injection), never an agent tool."""
+        ...
+
+
+# ------------------------------------------------------------------------- audit
+
+
+@dataclass
+class Event:
+    # llm_call | tool_call | tool_result | approval | denied | rollback | verify |
+    # compaction | subagent | diagnosis | error | stop
+    type: str
+    data: dict[str, Any] = field(default_factory=dict)
+    ts: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+# ------------------------------------------------------------------ diagnosis
+
+FAULT_CATEGORIES = (
+    "interface_down",
+    "ip_misconfig",
+    "bgp_neighbor_misconfig",
+    "bgp_policy",
+    "ospf_misconfig",
+    "static_route",
+    "acl_or_filter",
+    "mtu_mismatch",
+    "link_degradation",
+    "other",
+)
+
+
+@dataclass
+class Diagnosis:
+    root_cause_device: str
+    category: str  # one of FAULT_CATEGORIES
+    summary: str
+    evidence: list[str] = field(default_factory=list)
+    fix_applied: bool = False
+
+
+# --------------------------------------------------------------------- harness
+
+ApprovalMode = Literal["human", "auto_approve", "auto_deny"]
+
+
+@dataclass
+class HarnessConfig:
+    """Every feature flag here is something the bench can ablate."""
+
+    model: str = "claude-opus-5-5"
+    subagent_model: str = "claude-haiku-5-5"
+    effort: str = "medium"
+    max_turns: int = 40
+    max_tokens: int = 16000
+
+    prompt_caching: bool = True
+    # Truncate each tool result to this many characters when it enters history. None = off.
+    truncate_tool_output: int | None = 4000
+    # Offer an inspect_device tool that runs a read-only subagent with fresh context.
+    subagents: bool = True
+    # Start a fresh conversation from a summary once input tokens pass this. None = off.
+    compaction_threshold: int | None = 120_000
+    # Give the agent a notes tool whose contents survive compaction.
+    memory_notes: bool = True
+
+    # Safety layer. With safety off, mutating tools run without approval (the unsafe baseline).
+    safety: bool = True
+    approval: ApprovalMode = "auto_approve"
+    verify_after_change: bool = True
+    auto_rollback: bool = True

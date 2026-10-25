@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+.env
+
+# containerlab runtime state
+clab-*/
+.clab-*
+
+# run artifacts (audit logs, bench results)
+runs/
