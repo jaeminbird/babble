@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from faultline.types import ToolResult, ToolSpec
 
@@ -89,3 +90,43 @@ def make_notes_tool(store: NotesStore) -> ToolSpec:
         mutating=False,
         parallel_safe=False,
     )
+
+
+# ---------------------------------------------------------------- transcript
+
+RESULT_CHARS = 2000
+
+
+def render_transcript(messages: list[dict[str, Any]]) -> str:
+    """Plain-text rendering of a conversation for the summarizer. One section per message.
+    Text is verbatim, calls and results are one line each, thinking is skipped."""
+    sections = []
+    for message in messages:
+        header = f"{str(message.get('role', '')).upper()}:"
+        content = message.get("content", "")
+        if isinstance(content, str):
+            lines = [content]
+        else:
+            lines = [line for block in content if (line := _render_block(block)) is not None]
+        sections.append("\n".join([header, *lines]))
+    return "\n\n".join(sections)
+
+
+def _render_block(block: dict[str, Any]) -> str | None:
+    kind = block.get("type")
+    if kind == "text":
+        return str(block.get("text", ""))
+    if kind == "tool_use":
+        return f"CALL {block.get('name')} {json.dumps(block.get('input') or {}, sort_keys=True)}"
+    if kind == "tool_result":
+        label = "RESULT (error)" if block.get("is_error") else "RESULT"
+        return f"{label} {_result_text(block.get('content'))[:RESULT_CHARS]}"
+    return None  # thinking, redacted_thinking and anything else the summary does not need
+
+
+def _result_text(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    return "\n".join(str(b.get("text", "")) for b in content if isinstance(b, dict))

@@ -1,7 +1,12 @@
 import json
 from pathlib import Path
 
-from faultline.harness.memory import NO_NOTES, NotesStore, make_notes_tool
+from faultline.harness.memory import (
+    NO_NOTES,
+    NotesStore,
+    make_notes_tool,
+    render_transcript,
+)
 from faultline.types import ToolResult
 
 
@@ -103,3 +108,78 @@ def test_tool_append_and_replace_require_text():
 def test_tool_rejects_unknown_action():
     result = _run(NotesStore(), action="delete")
     assert result.is_error is True
+
+
+# ---------------------------------------------------------------- transcript
+
+
+def test_render_transcript_formats_each_block_type():
+    messages = [
+        {"role": "user", "content": "Diagnose ha cannot reach hb."},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "thinking", "thinking": "secret reasoning", "signature": "x"},
+                {"type": "text", "text": "Checking ra first."},
+                {"type": "tool_use", "id": "t1", "name": "show", "input": {"device": "ra"}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": "eth2 up"},
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "t2",
+                    "content": "no such device",
+                    "is_error": True,
+                },
+            ],
+        },
+    ]
+    rendered = render_transcript(messages)
+    assert rendered == (
+        "USER:\nDiagnose ha cannot reach hb.\n\n"
+        "ASSISTANT:\nChecking ra first.\n"
+        'CALL show {"device": "ra"}\n\n'
+        "USER:\nRESULT eth2 up\nRESULT (error) no such device"
+    )
+    assert "secret reasoning" not in rendered
+
+
+def test_render_transcript_truncates_each_result_to_2000_chars():
+    long = "x" * 5000
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "a", "content": long},
+                {"type": "tool_result", "tool_use_id": "b", "content": long},
+            ],
+        }
+    ]
+    lines = render_transcript(messages).split("\n")
+    assert lines[1] == "RESULT " + "x" * 2000
+    assert lines[2] == "RESULT " + "x" * 2000
+
+
+def test_render_transcript_skips_thinking_only_content_and_keeps_section():
+    messages = [
+        {"role": "assistant", "content": [{"type": "thinking", "thinking": "hmm"}]},
+    ]
+    assert render_transcript(messages) == "ASSISTANT:"
+
+
+def test_render_transcript_does_not_mutate_messages():
+    import copy
+
+    messages = [
+        {"role": "user", "content": "task"},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "t", "name": "show", "input": {"a": 1}}],
+        },
+    ]
+    before = copy.deepcopy(messages)
+    render_transcript(messages)
+    assert messages == before
