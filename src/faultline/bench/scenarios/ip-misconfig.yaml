@@ -1,0 +1,19 @@
+id: ip-misconfig
+title: Core router r2 has the wrong address on its link to site B
+topology: metro
+difficulty: medium
+fixable: true
+alert: >
+  Users at site B cannot reach the data center server 172.16.0.10.
+  Site A and the data center are unaffected.
+inject:
+  - device: r2
+    config:
+      - interface eth3
+      - no ip address 10.2.0.1/30
+      - ip address 10.2.0.5/30
+checks:
+  - {kind: ping, device: hb, target: 172.16.0.10}
+  - {kind: bgp_established, device: rb, target: 10.2.0.1}
+  - {kind: bgp_established, device: r2, target: 10.2.0.2}
+root_cause: {device: r2, category: ip_misconfig}

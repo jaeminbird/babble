@@ -1,0 +1,24 @@
+id: ospf-timer-mismatch
+title: Core router r1 uses non-matching OSPF hello timers on its core links
+topology: metro
+difficulty: medium
+fixable: true
+alert: >
+  Users at site A (192.168.1.0/24) cannot reach anything outside their site, including
+  the data center server 172.16.0.10. Site B and the data center are fine.
+inject:
+  - device: r1
+    config:
+      - interface eth1
+      - ip ospf hello-interval 30
+      - ip ospf dead-interval 120
+      - interface eth2
+      - ip ospf hello-interval 30
+      - ip ospf dead-interval 120
+checks:
+  - {kind: ping, device: ha, target: 172.16.0.10}
+  - {kind: ping, device: ha, target: 192.168.2.10}
+  - {kind: ospf_full, device: r1, target: 10.255.0.2}
+  - {kind: ospf_full, device: r1, target: 10.255.0.3}
+  - {kind: bgp_established, device: r1, target: 10.255.0.2}
+root_cause: {device: r1, category: ospf_misconfig}
