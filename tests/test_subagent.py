@@ -188,9 +188,11 @@ def test_child_events_are_tagged_with_the_device_and_a_subagent_event_is_recorde
 
     _invoke(tool, "r3")
 
-    child_events = [e for e in audit.events if e.type in ("llm_call", "tool_call", "tool_result")]
+    child_events = [
+        event for event in audit.events if event.type in ("llm_call", "tool_call", "tool_result")
+    ]
     assert child_events
-    assert all(e.data["subagent"] == "r3" for e in child_events)
+    assert all(event.data["subagent"] == "r3" for event in child_events)
     (summary,) = audit.of_type("subagent")
     assert summary.data == {
         "device": "r3",
@@ -324,10 +326,10 @@ def test_parent_inspects_two_routers_in_one_turn_then_submits_a_diagnosis():
     assert result.diagnosis.root_cause_device == "r3"
     # Both findings reach the parent in one user message, in call order.
     blocks = parent_llm.calls[1]["messages"][2]["content"]
-    assert [b["tool_use_id"] for b in blocks] == ["p1", "p2"]
+    assert [block["tool_use_id"] for block in blocks] == ["p1", "p2"]
     assert blocks[0]["content"].startswith("Findings from r3:\nBGP to 10.100.0.2 is Established.")
     assert blocks[1]["content"].startswith("Findings from r1:\nNo OSPF neighbors on r1.")
-    assert {e.data["device"] for e in audit.of_type("subagent")} == {"r1", "r3"}
+    assert {event.data["device"] for event in audit.of_type("subagent")} == {"r1", "r3"}
     # Parent calls and both children's calls share one accounting.
     assert accounting.calls == len(parent_llm.calls) + len(r3_llm.calls) + len(r1_llm.calls)
     for llm in (parent_llm, r3_llm, r1_llm):

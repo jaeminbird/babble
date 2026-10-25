@@ -367,7 +367,9 @@ def test_agent_compacts_into_fresh_conversation_and_finishes(tmp_path: Path):
     assert len(audit.of_type("compaction")) == 1
     assert accounting.calls == 4  # three agent calls and the summary call
 
-    agent_calls = [c for c in llm.calls if c["system"][0]["text"] == "You diagnose faults."]
+    agent_calls = [
+        call for call in llm.calls if call["system"][0]["text"] == "You diagnose faults."
+    ]
     summary_call = llm.calls[2]
     before, after = agent_calls[:2], agent_calls[2]
 
